@@ -70,12 +70,48 @@ The plugin can be configured via environment variables or flags in `herdr-plugin
 
 ---
 
+## Architecture & Adding New Agents
+
+The plugin uses a clean, modular extractor pipeline:
+
+```text
+session_titles/
+├── client.py           # Direct Unix socket JSON-RPC client
+├── config.py           # Paths, intervals, and regex patterns
+├── sanitize.py         # Prompt cleaning & path formatting
+├── sync.py             # Sync orchestrator & token reporting
+├── watcher.py          # Background daemon & PID management
+└── extractors/         # Extractor pipeline
+    ├── base.py         # BaseExtractor abstract class
+    ├── devin.py        # Devin SQLite, lockfiles, prompt history
+    ├── agy.py          # Antigravity pbtxt & JSONL transcripts
+    ├── kiro.py         # Kiro locks & sessions
+    └── fallback.py     # Generic terminal titles & user prompts
+```
+
+To add support for a new agent (e.g. `opencode`, `codex`, `aider`), create a new extractor in `session_titles/extractors/`:
+
+```python
+from session_titles.extractors.base import BaseExtractor
+
+class MyAgentExtractor(BaseExtractor):
+    def matches(self, pane: dict, agent: dict) -> bool:
+        return agent.get("agent") == "my-agent"
+
+    def extract(self, pane: dict, agent: dict, tab_label: str | None, client) -> str | None:
+        return "Clean session title"
+```
+
+And register it in `session_titles/extractors/__init__.py`.
+
+---
+
 ## Testing
 
 Run the included unit test suite:
 
 ```bash
-python3 -m unittest test_sync_titles.py
+python3 -m unittest discover tests
 ```
 
 ---

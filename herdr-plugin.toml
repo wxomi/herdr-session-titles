@@ -1,26 +1,26 @@
 id = "wxomi.session-titles"
 name = "Session Titles"
-version = "0.3.3"
+version = "0.4.0"
 min_herdr_version = "0.8.0"
 description = "Keep the agents sidebar labeled with each agent's real session title"
 platforms = ["linux", "macos"]
 
 # Background refresh so titles stay current as sessions rename themselves.
 [[startup]]
-command = ["python3", "sync_titles.py", "--watch"]
+command = ["python3", "-m", "session_titles", "--watch"]
 
 [[events]]
 on = "pane.agent_status_changed"
-command = ["python3", "sync_titles.py"]
+command = ["python3", "-m", "session_titles"]
 
 [[events]]
 on = "tab.focused"
-command = ["python3", "sync_titles.py"]
+command = ["python3", "-m", "session_titles"]
 
 [[events]]
 on = "tab.renamed"
-command = ["python3", "sync_titles.py"]
+command = ["python3", "-m", "session_titles"]
 
 [[events]]
 on = "pane.agent_detected"
-command = ["python3", "sync_titles.py"]
+command = ["python3", "-m", "session_titles"]

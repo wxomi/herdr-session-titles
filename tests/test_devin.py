@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Tests for Devin session-title resolution."""
+"""Unit tests for Devin session title extraction."""
 
 from __future__ import annotations
 
@@ -8,15 +7,10 @@ import tempfile
 import time
 import unittest
 
-from sync_titles import (
-    agy_conversation_id,
-    clean_prompt_for_title,
+from session_titles.extractors.devin import (
     extract_devin_rename,
-    format_agent_path,
-    format_agent_location,
     pick_newest_lock_session,
     resolve_devin_live_title,
-    sanitize,
 )
 
 
@@ -122,75 +116,6 @@ class ResolveDevinLiveTitleTests(unittest.TestCase):
                 renamed="Main Blockers T35299",
             ),
             "Main Blockers T35299",
-        )
-
-
-class AgyConversationIdTests(unittest.TestCase):
-    def test_prefers_herdr_session_over_stale_terminal_conversation(self) -> None:
-        agent = {
-            "terminal_title_stripped": (
-                "agy --conversation=f4bcdff8-3bde-4fb7-a878-d039dcc5f218"
-            ),
-            "agent_session": {
-                "agent": "agy",
-                "kind": "id",
-                "source": "herdr:antigravity_cli",
-                "value": "ff1b1b9d-0acb-499e-a6e1-eb43e1ac1f63",
-            },
-            "cwd": "/Users/wxomi",
-        }
-        self.assertEqual(
-            agy_conversation_id(agent),
-            "ff1b1b9d-0acb-499e-a6e1-eb43e1ac1f63",
-        )
-
-    def test_ignores_cwd_last_conversation_cache(self) -> None:
-        agent = {"cwd": "/Users/wxomi"}
-        self.assertIsNone(agy_conversation_id(agent))
-
-
-class FormatAgentPathTests(unittest.TestCase):
-    def test_home_shows_tilde(self) -> None:
-        self.assertEqual(format_agent_path(os.path.expanduser("~")), "~")
-
-    def test_project_uses_basename(self) -> None:
-        self.assertEqual(
-            format_agent_path("/Users/wxomi/Workspace/code/work/instahyre/devel"),
-            "devel",
-        )
-
-    def test_location_combines_agent_and_path(self) -> None:
-        self.assertEqual(
-            format_agent_location(
-                "devin",
-                "/Users/wxomi/Workspace/code/work/instahyre/devel",
-            ),
-            "devin · devel",
-        )
-
-
-class PromptCleaningTests(unittest.TestCase):
-    def test_strip_leading_image_path_extracts_actual_prompt(self) -> None:
-        raw = (
-            "/Users/wxomi/Desktop/Snapzy/Snapzy_2026-09-10_22-49-32_248.png "
-            "cursor is working but it's not showing in left bar"
-        )
-        self.assertEqual(
-            clean_prompt_for_title(raw),
-            "cursor is working but it's not showing in left bar",
-        )
-
-    def test_only_image_path_uses_basename(self) -> None:
-        raw = "/Users/wxomi/Desktop/Snapzy/Snapzy_2026-09-10_22-49-32_248.png"
-        self.assertEqual(
-            clean_prompt_for_title(raw),
-            "Snapzy_2026-09-10_22-49-32_248.png",
-        )
-
-    def test_sanitize_removes_literal_escaped_newlines(self) -> None:
-        self.assertEqual(
-            sanitize(r"\n/Users/wxomi/Desktop/Snapzy cursor is working"),
-            "/Users/wxomi/Desktop/Snapzy cursor is working",
         )
 
 
