@@ -127,12 +127,16 @@ class HerdrClient:
         return (res.get("result") or {}).get("process_info") or {}
 
     def report_metadata(
-        self, pane_id: str, source: str, tokens: dict[str, str | None]
+        self,
+        pane_id: str,
+        source: str,
+        tokens: dict[str, str | None],
+        title: str | None = None,
     ) -> bool:
-        res = self.call(
-            "pane.report_metadata",
-            {"pane_id": pane_id, "source": source, "tokens": tokens},
-        )
+        params: dict = {"pane_id": pane_id, "source": source, "tokens": tokens}
+        if title:
+            params["title"] = title
+        res = self.call("pane.report_metadata", params)
         return "result" in res
 
     def rename_tab(self, tab_id: str, label: str) -> bool:
@@ -699,12 +703,15 @@ def report_tokens(
     if not changed:
         return
 
+    title = updates.get("session")
     if CLIENT.is_available():
-        if CLIENT.report_metadata(pane_id, SOURCE, updates):
+        if CLIENT.report_metadata(pane_id, SOURCE, updates, title=title):
             return
 
     # Fallback to CLI
     args = ["pane", "report-metadata", pane_id, "--source", SOURCE]
+    if title:
+        args.extend(["--title", title])
     for name, value in updates.items():
         if value:
             args.extend(["--token", f"{name}={value}"])

@@ -7,20 +7,20 @@ platforms = ["linux", "macos"]
 
 # Background refresh so titles stay current as sessions rename themselves.
 [[startup]]
-command = ["/opt/homebrew/bin/python3", "sync_titles.py", "--watch"]
+command = ["python3", "sync_titles.py", "--watch"]
 
 [[events]]
 on = "pane.agent_status_changed"
-command = ["/opt/homebrew/bin/python3", "sync_titles.py"]
+command = ["python3", "sync_titles.py"]
 
 [[events]]
 on = "tab.focused"
-command = ["/opt/homebrew/bin/python3", "sync_titles.py"]
+command = ["python3", "sync_titles.py"]
 
 [[events]]
 on = "tab.renamed"
-command = ["/opt/homebrew/bin/python3", "sync_titles.py"]
+command = ["python3", "sync_titles.py"]
 
 [[events]]
 on = "pane.agent_detected"
-command = ["/opt/homebrew/bin/python3", "sync_titles.py"]
+command = ["python3", "sync_titles.py"]
