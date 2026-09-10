@@ -163,19 +163,13 @@ def run(*args: str) -> dict:
 
 
 LEADING_IMAGE_PATH = re.compile(
-    r"^(?:file://)?/[\w.\-/@~]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff|heic|mp4|mov|webm)\b\s*",
+    r"^(?:(?:file://)?/[\w.\-/@~]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff|heic|mp4|mov|webm)\b\s*)+",
     re.I,
 )
 
 
 def strip_leading_file_paths(text: str) -> str:
-    current = text.strip()
-    while True:
-        stripped = LEADING_IMAGE_PATH.sub("", current).strip()
-        if stripped == current:
-            break
-        current = stripped
-    return current
+    return LEADING_IMAGE_PATH.sub("", text.strip()).strip()
 
 
 def clean_prompt_for_title(text: str) -> str:
@@ -204,14 +198,12 @@ def sanitize(title: str | None) -> str | None:
 
 
 def tab_labels() -> dict[str, str]:
-    payload = run("tab", "list")
-    labels: dict[str, str] = {}
-    for tab in (payload.get("result") or {}).get("tabs") or []:
-        tab_id = tab.get("tab_id")
-        label = tab.get("label")
-        if tab_id and isinstance(label, str):
-            labels[tab_id] = label
-    return labels
+    tabs = (run("tab", "list").get("result") or {}).get("tabs") or []
+    return {
+        t["tab_id"]: t["label"]
+        for t in tabs
+        if t.get("tab_id") and isinstance(t.get("label"), str)
+    }
 
 
 def read_output(pane_id: str, lines: int = 250) -> str:
@@ -351,24 +343,13 @@ def pick_newest_lock_session(pids: set[int], lock_dir: str) -> str | None:
 
 
 def output_after_session_reset(output: str) -> str:
-    lines = output.splitlines()
-    start = 0
-    for index, line in enumerate(lines):
-        if DEVIN_SESSION_RESET.search(line):
-            start = index + 1
-    return "\n".join(lines[start:])
+    parts = DEVIN_SESSION_RESET.split(output)
+    return parts[-1] if parts else output
 
 
 def extract_devin_rename(output: str) -> str | None:
-    lines = output_after_session_reset(output).splitlines()[-50:]
-    titles: list[str] = []
-    for line in lines:
-        match = DEVIN_RENAMED.search(line.strip())
-        if match:
-            titles.append(match.group(1).strip())
-    if not titles:
-        return None
-    return sanitize(titles[-1])
+    matches = DEVIN_RENAMED.findall(output_after_session_reset(output))
+    return sanitize(matches[-1].strip()) if matches else None
 
 
 def resolve_devin_live_title(
@@ -398,13 +379,6 @@ def devin_resume_id(agent: dict) -> str | None:
         if match:
             return match.group(1)
     return None
-
-
-def devin_title_from_lock(pane_id: str) -> str | None:
-    session_id = pick_newest_lock_session(pane_process_ids(pane_id), LOCK_DIR)
-    if not session_id:
-        return None
-    return title_from_session_id(session_id)
 
 
 def devin_title_from_db(output: str, cwd: str | None) -> str | None:
@@ -452,13 +426,8 @@ def devin_title_from_db(output: str, cwd: str | None) -> str | None:
 def extract_devin_picker_title(output: str) -> str | None:
     if "Select a session to resume" not in output:
         return None
-    for line in reversed(output.splitlines()):
-        if "❭" not in line:
-            continue
-        match = re.search(r"❭\s+(.+)$", line)
-        if not match:
-            continue
-        title = re.split(r"\s{2,}|\s·\s", match.group(1).strip(), maxsplit=1)[0]
+    for match in reversed(re.findall(r"❭\s+(.+)$", output, re.M)):
+        title = re.split(r"\s{2,}|\s·\s", match.strip(), maxsplit=1)[0]
         if title and not SKIP_PROMPT.match(title):
             return sanitize(title)
     return None
@@ -652,12 +621,6 @@ def title_for_pane(pane: dict, agent: dict, tab_label: str | None) -> str | None
     return first_user_prompt_title(read_output(pane["pane_id"])) or "New session"
 
 
-def current_token(agent: dict) -> str | None:
-    tokens = agent.get("tokens") or {}
-    value = tokens.get("session")
-    return value if isinstance(value, str) and value else None
-
-
 def agent_cwd(pane: dict, agent: dict) -> str | None:
     for source in (agent, pane):
         for key in ("foreground_cwd", "cwd"):
@@ -718,10 +681,6 @@ def report_tokens(
         else:
             args.extend(["--clear-token", name])
     run(*args)
-
-
-def report_title(pane_id: str, title: str | None, previous: str | None) -> None:
-    report_tokens(pane_id, {"session": title}, {"session": previous})
 
 
 def sync_all(only_pane: str | None = None, sync_tabs: bool | None = None) -> None:
