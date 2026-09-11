@@ -68,10 +68,13 @@ class HerdrClient:
         source: str,
         tokens: dict[str, str | None],
         title: str | None = None,
+        display_agent: str | None = None,
     ) -> bool:
         params: dict = {"pane_id": pane_id, "source": source, "tokens": tokens}
         if title:
             params["title"] = title
+        if display_agent:
+            params["display_agent"] = display_agent
         res = self.call("pane.report_metadata", params)
         return "result" in res
 

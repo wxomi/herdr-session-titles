@@ -45,13 +45,15 @@ def report_tokens(
 
     title = updates.get("session")
     if client.is_available():
-        if client.report_metadata(pane_id, SOURCE, updates, title=title):
+        if client.report_metadata(
+            pane_id, SOURCE, updates, title=title, display_agent=title
+        ):
             return
 
     # Fallback to CLI
     args = ["pane", "report-metadata", pane_id, "--source", SOURCE]
     if title:
-        args.extend(["--title", title])
+        args.extend(["--title", title, "--display-agent", title])
     for name, value in updates.items():
         if value:
             args.extend(["--token", f"{name}={value}"])
