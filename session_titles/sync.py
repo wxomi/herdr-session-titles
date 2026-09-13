@@ -2,12 +2,150 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
-from session_titles.config import SOURCE, SYNC_TABS
+from session_titles.config import (
+    AGENTS_WORKSPACE_NAME,
+    AUTO_ROUTE_AGENTS,
+    SOURCE,
+    SYNC_TABS,
+)
 from session_titles.client import HerdrClient, run_herdr_cli
 from session_titles.extractors import title_for_pane
 from session_titles.sanitize import agent_cwd, format_agent_location
+
+
+def target_workspace_for_agent(
+    agent: dict,
+    workspaces_by_id: dict[str, dict],
+) -> str | None:
+    """Determine the paired agent workspace name for a given agent pane."""
+    base_workspaces = {
+        ws.get("label"): ws
+        for ws in workspaces_by_id.values()
+        if ws.get("label")
+        and not ws.get("label").endswith("-agents")
+        and ws.get("label") != "agents"
+    }
+
+    current_ws_id = agent.get("workspace_id")
+    current_ws = workspaces_by_id.get(current_ws_id, {})
+    current_label = current_ws.get("label") or ""
+
+    # 1. If already in a valid paired agent workspace, leave it there
+    if current_label.endswith("-agents"):
+        base_name = current_label[:-7]
+        if not base_workspaces or base_name in base_workspaces:
+            return None
+
+    # 2. If in a normal base workspace (e.g. 'devel' or '~'), pair with '{label}-agents'
+    if current_label in base_workspaces:
+        return f"{current_label}-agents"
+
+    # 3. Fallback for orphan agent workspaces or legacy 'agents': match against base workspaces
+    cwd = agent.get("cwd") or ""
+    if cwd and base_workspaces:
+        norm_cwd = os.path.normpath(cwd)
+        path_parts = norm_cwd.split(os.sep)
+        for base_name in base_workspaces:
+            if base_name != "~" and base_name in path_parts:
+                return f"{base_name}-agents"
+
+        home = os.path.expanduser("~")
+        if (norm_cwd == home or norm_cwd.startswith(home)) and "~" in base_workspaces:
+            return "~-agents"
+
+    tokens = agent.get("tokens") or {}
+    loc = tokens.get("location") or ""
+    if "·" in loc:
+        proj = loc.split("·", 1)[1].strip()
+        for base_name in base_workspaces:
+            if base_name.lower() == proj.lower():
+                return f"{base_name}-agents"
+
+    if current_label and current_label != "agents":
+        return f"{current_label}-agents"
+
+    return None
+
+
+def auto_route_agents(
+    client: HerdrClient,
+    snap: dict | None = None,
+) -> None:
+    """Ensure all active agent panes are routed to their paired <workspace>-agents workspace."""
+    if not client.is_available():
+        return
+
+    snapshot = snap if snap is not None else client.snapshot()
+    if not snapshot:
+        return
+
+    agents = snapshot.get("agents", [])
+    if not agents:
+        return
+
+    workspaces = (
+        (client.call("workspace.list").get("result") or {}).get("workspaces") or []
+    )
+    workspaces_by_id = {
+        ws["workspace_id"]: ws for ws in workspaces if "workspace_id" in ws
+    }
+    workspaces_by_name = {
+        (ws.get("label") or "").lower(): ws["workspace_id"]
+        for ws in workspaces
+        if "workspace_id" in ws
+    }
+    base_workspaces = {
+        ws.get("label"): ws
+        for ws in workspaces_by_id.values()
+        if ws.get("label")
+        and not ws.get("label").endswith("-agents")
+        and ws.get("label") != "agents"
+    }
+
+    moved = False
+    for agent in agents:
+        pid = agent.get("pane_id")
+        current_ws_id = agent.get("workspace_id")
+        if not pid or not current_ws_id:
+            continue
+
+        target_name = target_workspace_for_agent(agent, workspaces_by_id)
+        if not target_name:
+            continue
+
+        target_ws_id = workspaces_by_name.get(target_name.lower())
+        if not target_ws_id:
+            target_ws_id = client.get_or_create_workspace(target_name)
+            if target_ws_id:
+                workspaces_by_name[target_name.lower()] = target_ws_id
+
+        if target_ws_id and current_ws_id != target_ws_id:
+            is_focused = bool(agent.get("focused"))
+            if client.move_pane_to_workspace(pid, target_ws_id, focus=is_focused):
+                agent["workspace_id"] = target_ws_id
+                moved = True
+
+    # Clean up empty orphan agent workspaces if any exist
+    if moved and base_workspaces:
+        orphan_workspaces = [
+            ws
+            for ws in workspaces
+            if ws.get("label", "").endswith("-agents")
+            and ws.get("label")[:-7] not in base_workspaces
+        ]
+        if orphan_workspaces:
+            fresh_snap = client.snapshot()
+            panes = fresh_snap.get("panes", [])
+            for ow in orphan_workspaces:
+                ow_id = ow.get("workspace_id")
+                if ow_id:
+                    remaining = [p for p in panes if p.get("workspace_id") == ow_id]
+                    if not remaining:
+                        client.close_workspace(ow_id)
+
 
 
 def tab_labels(client: HerdrClient) -> dict[str, str]:
@@ -65,6 +203,7 @@ def report_tokens(
 def sync_all(
     only_pane: str | None = None,
     sync_tabs: bool | None = None,
+    auto_route: bool | None = None,
     client: HerdrClient | None = None,
 ) -> None:
     """Scan all active panes, resolve session titles, and update sidebar/tabs."""
@@ -74,6 +213,12 @@ def sync_all(
         if sync_tabs is None
         else sync_tabs
         or ("--sync-tabs" in sys.argv)
+    )
+    do_auto_route = (
+        AUTO_ROUTE_AGENTS
+        if auto_route is None
+        else auto_route
+        or ("--auto-route" in sys.argv)
     )
 
     snap = c.snapshot() if c.is_available() else {}
@@ -153,3 +298,6 @@ def sync_all(
                     c.rename_tab(tab_id, desired_tab)
                 else:
                     run_herdr_cli("tab", "rename", tab_id, desired_tab)
+
+    if do_auto_route and c.is_available() and not only_pane:
+        auto_route_agents(c, snap)

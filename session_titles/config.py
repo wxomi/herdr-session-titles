@@ -26,6 +26,10 @@ SYNC_TABS = os.environ.get("HERDR_SESSION_TITLES_SYNC_TABS", "false").lower() in
     "1",
     "yes",
 )
+AUTO_ROUTE_AGENTS = os.environ.get(
+    "HERDR_AUTO_ROUTE_AGENTS", "true"
+).lower() in ("true", "1", "yes")
+AGENTS_WORKSPACE_NAME = os.environ.get("HERDR_AGENTS_WORKSPACE", "agents")
 
 GENERIC_CLI_TITLE = re.compile(
     r"^(devin|cursor|cursor-agent|agy|codex|claude|grok|pi|opencode|copilot|"
