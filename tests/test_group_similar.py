@@ -23,6 +23,9 @@ class TestGroupSimilarAgents(unittest.TestCase):
         )
 
     def test_grouping_and_recency_order(self):
+        import session_titles.sync
+        session_titles.sync._tab_first_seen.clear()
+
         client = MagicMock()
         client.is_available.return_value = True
 
@@ -32,14 +35,14 @@ class TestGroupSimilarAgents(unittest.TestCase):
                 {"workspace_id": "w_agents", "label": "devel-agents"},
             ],
             "tabs": [
-                # Interleaved tabs in devel-agents
-                {"tab_id": "t_cur1", "workspace_id": "w_agents"},
-                {"tab_id": "t_agy1", "workspace_id": "w_agents"},
-                {"tab_id": "t_cur2", "workspace_id": "w_agents"},
-                {"tab_id": "t_dev1", "workspace_id": "w_agents"},
-                {"tab_id": "t_agy2", "workspace_id": "w_agents"},
+                # Interleaved tabs in devel-agents with explicit arrival numbers
+                {"tab_id": "t_cur1", "workspace_id": "w_agents", "number": 1},
+                {"tab_id": "t_agy1", "workspace_id": "w_agents", "number": 2},
+                {"tab_id": "t_cur2", "workspace_id": "w_agents", "number": 3},
+                {"tab_id": "t_dev1", "workspace_id": "w_agents", "number": 4},
+                {"tab_id": "t_agy2", "workspace_id": "w_agents", "number": 5},
                 # Tab in normal workspace
-                {"tab_id": "t_norm", "workspace_id": "w_normal"},
+                {"tab_id": "t_norm", "workspace_id": "w_normal", "number": 6},
             ],
             "panes": [
                 # agy2 is currently focused (highest recency)
@@ -71,8 +74,37 @@ class TestGroupSimilarAgents(unittest.TestCase):
         # Verify t_norm in normal workspace was never touched
         moved_tabs = [call[0][0] for call in client.move_tab.call_args_list]
         self.assertNotIn("t_norm", moved_tabs)
-        # Verify t_agy2 was moved to position 0
-        client.move_tab.assert_any_call("t_agy2", 0)
+        # Verify t_agy1 was moved to position 0
+        client.move_tab.assert_any_call("t_agy1", 0)
+
+
+    def test_already_grouped_does_not_move(self):
+        client = MagicMock()
+        client.is_available.return_value = True
+
+        snap = {
+            "workspaces": [{"workspace_id": "w_agents", "label": "devel-agents"}],
+            "tabs": [
+                {"tab_id": "t_cur1", "workspace_id": "w_agents", "number": 1},
+                {"tab_id": "t_cur2", "workspace_id": "w_agents", "number": 2},
+                {"tab_id": "t_agy1", "workspace_id": "w_agents", "number": 3},
+            ],
+            "panes": [
+                {"pane_id": "p_cur1", "tab_id": "t_cur1", "agent": "cursor", "revision": 500},
+                {"pane_id": "p_cur2", "tab_id": "t_cur2", "agent": "cursor", "revision": 10},
+                {"pane_id": "p_agy1", "tab_id": "t_agy1", "agent": "agy", "revision": 900},
+            ],
+            "agents": [
+                {"pane_id": "p_cur1", "agent": "cursor"},
+                {"pane_id": "p_cur2", "agent": "cursor"},
+                {"pane_id": "p_agy1", "agent": "agy"},
+            ],
+        }
+
+        group_similar_agents_by_recency(client, snap=snap)
+        # Already grouped: all cursors contiguous, then agy.
+        # move_tab must NEVER be called! Zero fluctuations!
+        client.move_tab.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -17,9 +17,6 @@ from session_titles.extractors import title_for_pane
 from session_titles.sanitize import agent_cwd, format_agent_location
 
 
-_pane_activity: dict[str, float] = {}
-_pane_revisions: dict[str, int] = {}
-
 
 def target_workspace_for_agent(
     agent: dict,
@@ -157,7 +154,20 @@ def auto_route_agents(
                     remaining = [p for p in panes if p.get("workspace_id") == ow_id]
                     if not remaining:
                         client.close_workspace(ow_id)
+_tab_first_seen: dict[str, float] = {}
 
+
+def is_already_grouped(kinds: list[str]) -> bool:
+    """Return True if all occurrences of each agent kind are already contiguous."""
+    seen: set[str] = set()
+    current_kind = None
+    for k in kinds:
+        if k != current_kind:
+            if k in seen:
+                return False
+            seen.add(k)
+            current_kind = k
+    return True
 
 
 def get_pane_agent_kind(pane: dict, agents_by_pane: dict[str, dict]) -> str:
@@ -193,7 +203,7 @@ def group_similar_agents_by_recency(
     client: HerdrClient,
     snap: dict | None = None,
 ) -> None:
-    """Group similar agents together in agent workspaces, sorted by recency."""
+    """Group similar agents contiguously without fluctuating or re-shuffling active tabs."""
     if not client.is_available():
         return
 
@@ -211,37 +221,11 @@ def group_similar_agents_by_recency(
         a["pane_id"]: a for a in agents if isinstance(a, dict) and "pane_id" in a
     }
 
-    for p in panes:
-        pid = p.get("pane_id")
-        if not pid:
-            continue
-        rev = p.get("revision", 0)
-        is_focused = bool(p.get("focused"))
-
-        if pid not in _pane_activity:
-            _pane_activity[pid] = now - 10000.0 + (rev if isinstance(rev, int) else 0)
-            _pane_revisions[pid] = rev if isinstance(rev, int) else 0
-
-        if is_focused:
-            _pane_activity[pid] = now
-        elif isinstance(rev, int) and rev > _pane_revisions.get(pid, 0):
-            _pane_activity[pid] = now
-            _pane_revisions[pid] = rev
-
     tab_panes: dict[str, list[dict]] = collections.defaultdict(list)
     for p in panes:
         tid = p.get("tab_id")
         if tid:
             tab_panes[tid].append(p)
-
-    def tab_recency(tab_id: str) -> float:
-        return max(
-            (
-                _pane_activity.get(p.get("pane_id", ""), 0.0)
-                for p in tab_panes.get(tab_id, [])
-            ),
-            default=0.0,
-        )
 
     def tab_agent_kind(tab_id: str) -> str:
         for p in tab_panes.get(tab_id, []):
@@ -249,6 +233,14 @@ def group_similar_agents_by_recency(
             if kind:
                 return kind
         return "agent"
+
+    # Record first-seen arrival order for tabs (immutable, never fluctuates)
+    for t in tabs:
+        tid = t.get("tab_id")
+        if tid and tid not in _tab_first_seen:
+            # Use tab number or now for deterministic initial placement
+            num = t.get("number")
+            _tab_first_seen[tid] = (now - 1000.0 + num) if isinstance(num, int) else now
 
     agent_workspaces = {
         ws.get("workspace_id")
@@ -267,18 +259,24 @@ def group_similar_agents_by_recency(
         if len(ws_tabs) <= 1:
             continue
 
+        current_kinds = [tab_agent_kind(t["tab_id"]) for t in ws_tabs]
+
+        # STABILITY GUARD: If all similar agents are already contiguous, do nothing!
+        if is_already_grouped(current_kinds):
+            continue
+
+        # Group tabs by agent kind, preserving existing order within each kind
         groups: dict[str, list[dict]] = collections.defaultdict(list)
         for t in ws_tabs:
             kind = tab_agent_kind(t["tab_id"])
             groups[kind].append(t)
 
-        for kind, kind_tabs in groups.items():
-            kind_tabs.sort(key=lambda t: tab_recency(t["tab_id"]), reverse=True)
-
+        # Sort groups by the latest tab arrival in that group (newest group first)
         sorted_kinds = sorted(
             groups.keys(),
             key=lambda k: max(
-                (tab_recency(t["tab_id"]) for t in groups[k]), default=0.0
+                (_tab_first_seen.get(t["tab_id"], 0.0) for t in groups[k]),
+                default=0.0,
             ),
             reverse=True,
         )
