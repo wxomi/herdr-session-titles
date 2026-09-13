@@ -5,7 +5,7 @@ from session_titles.extractors import DEFAULT_EXTRACTORS, register_extractor, ti
 from session_titles.extractors.base import BaseExtractor
 from session_titles.sync import sync_all
 
-__version__ = "0.4.0"
+__version__ = "0.5.6"
 
 __all__ = [
     "HerdrClient",

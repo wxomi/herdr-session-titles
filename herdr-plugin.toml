@@ -1,6 +1,6 @@
 id = "wxomi.session-titles"
 name = "Session Titles"
-version = "0.5.5"
+version = "0.5.6"
 min_herdr_version = "0.8.0"
 description = "Real agent session titles + paired <workspace>-agents + manual workspace lifecycle"
 platforms = ["linux", "macos"]

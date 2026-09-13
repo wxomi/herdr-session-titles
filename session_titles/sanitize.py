@@ -8,6 +8,7 @@ import re
 from session_titles.config import (
     GENERIC_CLI_TITLE,
     GENERIC_NAMES,
+    LEADING_FILE_PATH,
     LEADING_IMAGE_PATH,
     SKIP_PROMPT,
     SLASH_COMMAND,
@@ -15,12 +16,12 @@ from session_titles.config import (
 
 
 def strip_leading_file_paths(text: str) -> str:
-    """Remove absolute file/screenshot paths prepended to prompts."""
-    return LEADING_IMAGE_PATH.sub("", text.strip()).strip()
+    """Remove leading file, document, or screenshot paths prepended to prompts."""
+    return LEADING_FILE_PATH.sub("", text.strip()).strip()
 
 
 def clean_prompt_for_title(text: str) -> str:
-    """Extract a concise title from raw prompt text, handling images/screenshots."""
+    """Extract a concise title from raw prompt text, handling files and screenshots."""
     cleaned = strip_leading_file_paths(text)
     if cleaned:
         return cleaned

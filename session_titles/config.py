@@ -57,10 +57,11 @@ SKIP_PROMPT = re.compile(
     r"^(Ask Devin to build|Other \(type|/ Type to search|\d+\s|·\s)",
     re.I,
 )
-LEADING_IMAGE_PATH = re.compile(
-    r"^(?:(?:file://)?/[\w.\-/@~]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff|heic|mp4|mov|webm)\b\s*)+",
+LEADING_FILE_PATH = re.compile(
+    r"^(?:(?:file://)?(?:/|~|\./|\.\./|[\w.\-]+/)+[\w.\-]+\.[a-zA-Z0-9_-]+\b\s*)+",
     re.I,
 )
+LEADING_IMAGE_PATH = LEADING_FILE_PATH
 DEVIN_TAB_PREFIX = re.compile(r"^devin\s*[-:]\s*", re.I)
 DEVIN_RESUME_ID = re.compile(r"(?:^|\s)-r\s+([A-Za-z0-9_-]+)")
 DEVIN_RENAMED = re.compile(r"Session renamed to\s+(.+)$", re.I)

@@ -26,6 +26,23 @@ class PromptCleaningTests(unittest.TestCase):
             "cursor is working but it's not showing in left bar",
         )
 
+    def test_strip_leading_document_path_extracts_actual_prompt(self) -> None:
+        raw = (
+            "private/tmp/auction-handoff.XhiI0d/T45399-D39466-handoff.md "
+            "can you also check which is best approch"
+        )
+        self.assertEqual(
+            clean_prompt_for_title(raw),
+            "can you also check which is best approch",
+        )
+
+    def test_strip_relative_file_only_uses_basename(self) -> None:
+        raw = "private/tmp/auction-handoff.XhiI0d/T45399-D39466-handoff.md"
+        self.assertEqual(
+            clean_prompt_for_title(raw),
+            "T45399-D39466-handoff.md",
+        )
+
     def test_only_image_path_uses_basename(self) -> None:
         raw = "/Users/wxomi/Desktop/Snapzy/Snapzy_2026-09-10_22-49-32_248.png"
         self.assertEqual(
