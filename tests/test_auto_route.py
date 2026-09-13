@@ -23,6 +23,15 @@ class TestAutoRouteAgents(unittest.TestCase):
         ag3 = {"pane_id": "p3", "workspace_id": "w_auc"}
         self.assertEqual(target_workspace_for_agent(ag3, workspaces_by_id), "auction-agents")
 
+        # Regression: Agent in '~-agents' when '~' is closed must NEVER chain to '~-agents-agents'
+        workspaces_without_home = {
+            "w_dev": {"label": "devel", "workspace_id": "w_dev"},
+            "w_home_agents": {"label": "~-agents", "workspace_id": "w_home_agents"},
+            "w_dev_agents": {"label": "devel-agents", "workspace_id": "w_dev_agents"},
+        }
+        ag_home_agents = {"pane_id": "p4", "workspace_id": "w_home_agents"}
+        self.assertIsNone(target_workspace_for_agent(ag_home_agents, workspaces_without_home))
+
     def test_auto_route_moves_to_paired_workspace(self):
         client = MagicMock()
         client.is_available.return_value = True

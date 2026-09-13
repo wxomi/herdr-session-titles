@@ -23,6 +23,20 @@ def target_workspace_for_agent(
     workspaces_by_id: dict[str, dict],
 ) -> str | None:
     """Determine the paired agent workspace name for a given agent pane."""
+    current_ws_id = agent.get("workspace_id")
+    current_ws = workspaces_by_id.get(current_ws_id, {})
+    current_label = current_ws.get("label") or ""
+
+    # STRICT GUARD 1: Canonical agent workspaces NEVER route anywhere else
+    if current_label in ("~-agents", "devel-agents"):
+        return None
+
+    # STRICT GUARD 2: Any workspace with '-agents' must NEVER have '-agents' appended
+    if "-agents" in current_label:
+        base_name = current_label.split("-agents")[0]
+        if base_name in ("~", "devel"):
+            return None
+
     base_workspaces = {
         ws.get("label"): ws
         for ws in workspaces_by_id.values()
@@ -31,23 +45,22 @@ def target_workspace_for_agent(
         and ws.get("label") != "agents"
     }
 
-    current_ws_id = agent.get("workspace_id")
-    current_ws = workspaces_by_id.get(current_ws_id, {})
-    current_label = current_ws.get("label") or ""
-
-    # 1. If already in a valid paired agent workspace, leave it there
+    # If in an agent workspace whose base workspace is valid or home, leave it
     if current_label.endswith("-agents"):
         base_name = current_label[:-7]
-        if not base_workspaces or base_name in base_workspaces:
+        if base_name in base_workspaces or base_name == "~":
             return None
 
-    # 2. If in a normal base workspace (e.g. 'devel' or '~'), pair with '{label}-agents'
+    # If in a normal base workspace (e.g. 'devel' or '~'), pair with '{label}-agents'
     if current_label in base_workspaces:
         return f"{current_label}-agents"
+    if current_label == "~":
+        return "~-agents"
 
-    # 3. Fallback for orphan agent workspaces or legacy 'agents': match against base workspaces
+    # Fallback for orphan agent workspaces (e.g. 'auction-agents') or legacy 'agents':
+    # Match against base workspaces using cwd
     cwd = agent.get("cwd") or ""
-    if cwd and base_workspaces:
+    if cwd:
         norm_cwd = os.path.normpath(cwd)
         path_parts = norm_cwd.split(os.sep)
         for base_name in base_workspaces:
@@ -55,7 +68,7 @@ def target_workspace_for_agent(
                 return f"{base_name}-agents"
 
         home = os.path.expanduser("~")
-        if (norm_cwd == home or norm_cwd.startswith(home)) and "~" in base_workspaces:
+        if norm_cwd == home or norm_cwd.startswith(home):
             return "~-agents"
 
     tokens = agent.get("tokens") or {}
@@ -66,7 +79,12 @@ def target_workspace_for_agent(
             if base_name.lower() == proj.lower():
                 return f"{base_name}-agents"
 
-    if current_label and current_label != "agents":
+    # Default fallback ONLY for non-agent workspaces
+    if (
+        current_label
+        and not current_label.endswith("-agents")
+        and current_label != "agents"
+    ):
         return f"{current_label}-agents"
 
     return None
@@ -115,7 +133,7 @@ def auto_route_agents(
             continue
 
         target_name = target_workspace_for_agent(agent, workspaces_by_id)
-        if not target_name:
+        if not target_name or target_name.count("-agents") > 1:
             continue
 
         target_ws_id = workspaces_by_name.get(target_name.lower())

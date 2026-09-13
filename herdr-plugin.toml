@@ -1,8 +1,8 @@
 id = "wxomi.session-titles"
 name = "Session Titles"
-version = "0.5.3"
+version = "0.5.4"
 min_herdr_version = "0.8.0"
-description = "Real agent session titles + paired <workspace>-agents + stable contiguous grouping (no fluctuations)"
+description = "Real agent session titles + paired <workspace>-agents + recursion-proof auto-routing"
 platforms = ["linux", "macos"]
 
 # Background refresh so titles stay current as sessions rename themselves.
