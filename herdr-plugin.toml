@@ -1,8 +1,8 @@
 id = "wxomi.session-titles"
 name = "Session Titles"
-version = "0.5.0"
+version = "0.5.1"
 min_herdr_version = "0.8.0"
-description = "Real agent session titles in sidebar + paired <workspace>-agents workspace routing"
+description = "Real agent session titles + paired <workspace>-agents + recency-based similar agent grouping"
 platforms = ["linux", "macos"]
 
 # Background refresh so titles stay current as sessions rename themselves.

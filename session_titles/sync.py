@@ -1,19 +1,24 @@
-"""Core synchronization logic between Herdr sessions and UI tokens."""
-
 from __future__ import annotations
-
+import collections
 import os
 import sys
+import time
 
 from session_titles.config import (
     AGENTS_WORKSPACE_NAME,
     AUTO_ROUTE_AGENTS,
+    GENERIC_NAMES,
+    GROUP_SIMILAR_AGENTS,
     SOURCE,
     SYNC_TABS,
 )
 from session_titles.client import HerdrClient, run_herdr_cli
 from session_titles.extractors import title_for_pane
 from session_titles.sanitize import agent_cwd, format_agent_location
+
+
+_pane_activity: dict[str, float] = {}
+_pane_revisions: dict[str, int] = {}
 
 
 def target_workspace_for_agent(
@@ -148,6 +153,146 @@ def auto_route_agents(
 
 
 
+def get_pane_agent_kind(pane: dict, agents_by_pane: dict[str, dict]) -> str:
+    """Determine the normalized agent kind (e.g. 'cursor', 'agy', 'devin')."""
+    ag_obj = agents_by_pane.get(pane.get("pane_id", ""), {})
+    agent = ag_obj.get("agent") or pane.get("agent")
+    if agent and isinstance(agent, str) and agent.lower() != "unknown":
+        return agent.lower().strip()
+
+    tokens = pane.get("tokens") or ag_obj.get("tokens") or {}
+    loc = tokens.get("location") or ""
+    if "·" in loc:
+        prefix = loc.split("·", 1)[0].strip().lower()
+        if prefix in GENERIC_NAMES or prefix in (
+            "devin",
+            "cursor",
+            "agy",
+            "kiro",
+            "claude",
+            "codex",
+        ):
+            return prefix
+
+    title = (pane.get("title") or pane.get("terminal_title") or "").lower()
+    for name in ("cursor", "devin", "agy", "kiro", "claude", "codex"):
+        if name in title:
+            return name
+
+    return "agent"
+
+
+def group_similar_agents_by_recency(
+    client: HerdrClient,
+    snap: dict | None = None,
+) -> None:
+    """Group similar agents together in agent workspaces, sorted by recency."""
+    if not client.is_available():
+        return
+
+    snapshot = snap if snap is not None else client.snapshot()
+    if not snapshot:
+        return
+
+    now = time.time()
+    panes = [p for p in snapshot.get("panes", []) if isinstance(p, dict)]
+    tabs = [t for t in snapshot.get("tabs", []) if isinstance(t, dict)]
+    workspaces = snapshot.get("workspaces", [])
+    agents = snapshot.get("agents", [])
+
+    agents_by_pane = {
+        a["pane_id"]: a for a in agents if isinstance(a, dict) and "pane_id" in a
+    }
+
+    for p in panes:
+        pid = p.get("pane_id")
+        if not pid:
+            continue
+        rev = p.get("revision", 0)
+        is_focused = bool(p.get("focused"))
+
+        if pid not in _pane_activity:
+            _pane_activity[pid] = now - 10000.0 + (rev if isinstance(rev, int) else 0)
+            _pane_revisions[pid] = rev if isinstance(rev, int) else 0
+
+        if is_focused:
+            _pane_activity[pid] = now
+        elif isinstance(rev, int) and rev > _pane_revisions.get(pid, 0):
+            _pane_activity[pid] = now
+            _pane_revisions[pid] = rev
+
+    tab_panes: dict[str, list[dict]] = collections.defaultdict(list)
+    for p in panes:
+        tid = p.get("tab_id")
+        if tid:
+            tab_panes[tid].append(p)
+
+    def tab_recency(tab_id: str) -> float:
+        return max(
+            (
+                _pane_activity.get(p.get("pane_id", ""), 0.0)
+                for p in tab_panes.get(tab_id, [])
+            ),
+            default=0.0,
+        )
+
+    def tab_agent_kind(tab_id: str) -> str:
+        for p in tab_panes.get(tab_id, []):
+            kind = get_pane_agent_kind(p, agents_by_pane)
+            if kind:
+                return kind
+        return "agent"
+
+    agent_workspaces = {
+        ws.get("workspace_id")
+        for ws in workspaces
+        if ws.get("label", "").endswith("-agents") or ws.get("label") == "agents"
+    }
+
+    workspace_tabs: dict[str, list[dict]] = collections.defaultdict(list)
+    for t in tabs:
+        tid = t.get("tab_id")
+        ws_id = t.get("workspace_id")
+        if tid and ws_id in agent_workspaces:
+            workspace_tabs[ws_id].append(t)
+
+    for ws_id, ws_tabs in workspace_tabs.items():
+        if len(ws_tabs) <= 1:
+            continue
+
+        groups: dict[str, list[dict]] = collections.defaultdict(list)
+        for t in ws_tabs:
+            kind = tab_agent_kind(t["tab_id"])
+            groups[kind].append(t)
+
+        for kind, kind_tabs in groups.items():
+            kind_tabs.sort(key=lambda t: tab_recency(t["tab_id"]), reverse=True)
+
+        sorted_kinds = sorted(
+            groups.keys(),
+            key=lambda k: max(
+                (tab_recency(t["tab_id"]) for t in groups[k]), default=0.0
+            ),
+            reverse=True,
+        )
+
+        desired_tabs: list[dict] = []
+        for k in sorted_kinds:
+            desired_tabs.extend(groups[k])
+
+        current_ids = [t["tab_id"] for t in ws_tabs]
+        desired_ids = [t["tab_id"] for t in desired_tabs]
+
+        if current_ids != desired_ids:
+            ordered_ids = list(current_ids)
+            for target_idx, desired_id in enumerate(desired_ids):
+                curr_idx = ordered_ids.index(desired_id)
+                if curr_idx != target_idx:
+                    client.move_tab(desired_id, target_idx)
+                    ordered_ids.pop(curr_idx)
+                    ordered_ids.insert(target_idx, desired_id)
+
+
 def tab_labels(client: HerdrClient) -> dict[str, str]:
     """Retrieve mapping of tab IDs to their current labels."""
     if client.is_available():
@@ -204,6 +349,7 @@ def sync_all(
     only_pane: str | None = None,
     sync_tabs: bool | None = None,
     auto_route: bool | None = None,
+    group_similar: bool | None = None,
     client: HerdrClient | None = None,
 ) -> None:
     """Scan all active panes, resolve session titles, and update sidebar/tabs."""
@@ -219,6 +365,12 @@ def sync_all(
         if auto_route is None
         else auto_route
         or ("--auto-route" in sys.argv)
+    )
+    do_group_similar = (
+        GROUP_SIMILAR_AGENTS
+        if group_similar is None
+        else group_similar
+        or ("--group-similar" in sys.argv)
     )
 
     snap = c.snapshot() if c.is_available() else {}
@@ -301,3 +453,6 @@ def sync_all(
 
     if do_auto_route and c.is_available() and not only_pane:
         auto_route_agents(c, snap)
+
+    if do_group_similar and c.is_available() and not only_pane:
+        group_similar_agents_by_recency(c, snap)

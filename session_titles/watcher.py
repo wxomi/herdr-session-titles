@@ -36,6 +36,7 @@ def write_pid() -> None:
 def watch(
     sync_tabs: bool = False,
     auto_route: bool | None = None,
+    group_similar: bool | None = None,
     client: HerdrClient | None = None,
 ) -> int:
     """Run continuous sync loop until interrupted."""
@@ -45,7 +46,12 @@ def watch(
     c = client or HerdrClient()
     try:
         while True:
-            sync_all(sync_tabs=sync_tabs, auto_route=auto_route, client=c)
+            sync_all(
+                sync_tabs=sync_tabs,
+                auto_route=auto_route,
+                group_similar=group_similar,
+                client=c,
+            )
             time.sleep(WATCH_SECONDS)
     except KeyboardInterrupt:
         return 0

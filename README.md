@@ -19,6 +19,7 @@ When running 5–10 agent sessions across multiple workspaces, it is impossible 
 - **Cursor & Claude:** Resolves terminal titles and conversation topics.
 - **Non-agent panes:** Formats clean context labels (`<agent> · <project>`).
 - 🤖 **Auto-Route Agents to Dedicated Workspaces:** Automatically detects active AI agent sessions running in normal terminal tabs and moves them into paired `<workspace>-agents` workspaces (e.g. `devel` → `devel-agents`, `~` → `~-agents`). This keeps your active workspace clean and shell-only, while giving agents their own dedicated workspace.
+- 🎯 **Group Similar Agents by Recency:** In agent workspaces, similar agent tabs (all Cursor, all Devin, all Agy, etc.) are kept together in contiguous clusters and sorted based on recency of focus and activity.
 
 ---
 
@@ -26,6 +27,7 @@ When running 5–10 agent sessions across multiple workspaces, it is impossible 
 
 - ⚡ **Blazing Fast (Direct Unix Socket):** Speaks directly to Herdr's local Unix socket (`session.snapshot`) with **zero subprocess forks**. A full sync across 15+ panes completes in **~1.2 ms**.
 - 🗂️ **Paired Agent Workspaces:** Automatically routes agent panes to `<workspace>-agents` without manual intervention or messy tab dividers.
+- 🎯 **Recency-Based Similar Agent Grouping:** Groups similar agents together so you never have scattered tabs.
 - 🔋 **Zero Battery Drain:** Zero polling subprocesses; sleeps cleanly between checks.
 - 📦 **Zero External Dependencies:** Built entirely with Python 3's standard library (`socket`, `json`, `sqlite3`, `re`). No compilation, no `pip install`, and no API keys required.
 - 🪟 **Sidebar & Optional Tab Sync:** Populates your `$session` and `$location` sidebar tokens, with optional support for renaming the bottom tab bar (`--sync-tabs`).
@@ -67,6 +69,7 @@ The plugin can be configured via environment variables or flags in `herdr-plugin
 | Environment Variable | Default | Description |
 | :--- | :--- | :--- |
 | `HERDR_AUTO_ROUTE_AGENTS` | `true` | Automatically move active agent panes into paired `<workspace>-agents` workspaces. Pass `--no-auto-route` to disable. |
+| `HERDR_GROUP_SIMILAR_AGENTS` | `true` | Group similar agent tabs together in agent workspaces ordered by recency. Pass `--no-group-similar` to disable. |
 | `HERDR_SESSION_TITLES_INTERVAL` | `2` | Polling interval in seconds (default: 2s). |
 | `HERDR_SESSION_TITLES_SYNC_TABS` | `false` | Set to `true` (or pass `--sync-tabs`) to also rename the bottom tab bar with the clean task title. |
 | `HERDR_SOCKET_PATH` | `~/.config/herdr/herdr.sock` | Path to the Herdr Unix domain socket. |

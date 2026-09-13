@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import sys
 
-from session_titles.config import AUTO_ROUTE_AGENTS, SYNC_TABS
+from session_titles.config import (
+    AUTO_ROUTE_AGENTS,
+    GROUP_SIMILAR_AGENTS,
+    SYNC_TABS,
+)
 from session_titles.sync import sync_all
 from session_titles.watcher import watch
 
@@ -16,7 +20,8 @@ def main(argv: list[str] | None = None) -> int:
     if "--help" in args or "-h" in args:
         print(
             "Usage: python3 -m session_titles [--watch] [--pane PANE_ID] "
-            "[--sync-tabs] [--auto-route] [--no-auto-route]"
+            "[--sync-tabs] [--auto-route] [--no-auto-route] "
+            "[--group-similar] [--no-group-similar]"
         )
         return 0
 
@@ -24,8 +29,15 @@ def main(argv: list[str] | None = None) -> int:
     auto_route = "--no-auto-route" not in args and (
         "--auto-route" in args or AUTO_ROUTE_AGENTS
     )
+    group_similar = "--no-group-similar" not in args and (
+        "--group-similar" in args or GROUP_SIMILAR_AGENTS
+    )
     if "--watch" in args:
-        return watch(sync_tabs=sync_tabs, auto_route=auto_route)
+        return watch(
+            sync_tabs=sync_tabs,
+            auto_route=auto_route,
+            group_similar=group_similar,
+        )
 
     only_pane = None
     if len(args) >= 3 and args[1] == "--pane":
@@ -33,7 +45,12 @@ def main(argv: list[str] | None = None) -> int:
         if only_pane.startswith("$"):
             only_pane = None
 
-    sync_all(only_pane=only_pane, sync_tabs=sync_tabs, auto_route=auto_route)
+    sync_all(
+        only_pane=only_pane,
+        sync_tabs=sync_tabs,
+        auto_route=auto_route,
+        group_similar=group_similar,
+    )
     return 0
 
 

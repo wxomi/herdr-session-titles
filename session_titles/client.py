@@ -83,6 +83,10 @@ class HerdrClient:
         res = self.call("tab.rename", {"tab_id": tab_id, "label": label})
         return "result" in res
 
+    def move_tab(self, tab_id: str, insert_index: int) -> bool:
+        res = self.call("tab.move", {"tab_id": tab_id, "insert_index": insert_index})
+        return "result" in res
+
     def close_tab(self, tab_id: str) -> bool:
         res = self.call("tab.close", {"tab_id": tab_id})
         return "result" in res
