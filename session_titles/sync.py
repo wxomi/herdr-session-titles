@@ -154,24 +154,6 @@ def auto_route_agents(
             if client.move_pane_to_workspace(pid, target_ws_id, focus=is_focused):
                 agent["workspace_id"] = target_ws_id
                 moved = True
-
-    # Clean up empty orphan agent workspaces if any exist
-    if moved and base_workspaces:
-        orphan_workspaces = [
-            ws
-            for ws in workspaces
-            if ws.get("label", "").endswith("-agents")
-            and ws.get("label")[:-7] not in base_workspaces
-        ]
-        if orphan_workspaces:
-            fresh_snap = client.snapshot()
-            panes = fresh_snap.get("panes", [])
-            for ow in orphan_workspaces:
-                ow_id = ow.get("workspace_id")
-                if ow_id:
-                    remaining = [p for p in panes if p.get("workspace_id") == ow_id]
-                    if not remaining:
-                        client.close_workspace(ow_id)
 _tab_first_seen: dict[str, float] = {}
 
 
