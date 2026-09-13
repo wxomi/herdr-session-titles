@@ -128,7 +128,14 @@ def auto_route_agents(
                 workspaces_by_name[target_name.lower()] = target_ws_id
 
         if target_ws_id and current_ws_id != target_ws_id:
-            is_focused = bool(agent.get("focused"))
+            is_focused = bool(
+                agent.get("focused")
+                or pid == snapshot.get("focused_pane_id")
+                or (
+                    current_ws_id == snapshot.get("focused_workspace_id")
+                    and agent.get("tab_id") == snapshot.get("focused_tab_id")
+                )
+            )
             if client.move_pane_to_workspace(pid, target_ws_id, focus=is_focused):
                 agent["workspace_id"] = target_ws_id
                 moved = True

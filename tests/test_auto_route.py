@@ -96,6 +96,30 @@ class TestAutoRouteAgents(unittest.TestCase):
         self.assertTrue(moved)
         self.assertNotIn("w_new", client._new_workspace_initial_tabs)
 
+    def test_move_pane_switches_workspace_when_focused(self):
+        from session_titles.client import HerdrClient
+
+        client = HerdrClient(sock_path=None)
+        client.is_available = MagicMock(return_value=True)
+        client.call = MagicMock(side_effect=[
+            {
+                "result": {
+                    "type": "pane_move",
+                    "move_result": {
+                        "changed": True,
+                        "created_tab": {"tab_id": "t_new_agent"},
+                    },
+                }
+            },  # pane.move
+            {"result": {"type": "workspace_info"}},  # workspace.focus
+            {"result": {"type": "tab_info"}},  # tab.focus
+        ])
+
+        moved = client.move_pane_to_workspace("p1", "w_agents", focus=True)
+        self.assertTrue(moved)
+        client.call.assert_any_call("workspace.focus", {"workspace_id": "w_agents"})
+        client.call.assert_any_call("tab.focus", {"tab_id": "t_new_agent"})
+
 
 if __name__ == "__main__":
     unittest.main()

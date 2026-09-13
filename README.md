@@ -18,7 +18,7 @@ When running 5–10 agent sessions across multiple workspaces, it is impossible 
 - **Kiro:** Resolves session IDs from lock files and JSON session stores.
 - **Cursor & Claude:** Resolves terminal titles and conversation topics.
 - **Non-agent panes:** Formats clean context labels (`<agent> · <project>`).
-- 🤖 **Auto-Route Agents to Dedicated Workspaces:** Automatically detects active AI agent sessions running in normal terminal tabs and moves them into paired `<workspace>-agents` workspaces (e.g. `devel` → `devel-agents`, `~` → `~-agents`). This keeps your active workspace clean and shell-only, while giving agents their own dedicated workspace.
+- 🤖 **Auto-Route Agents with Seamless Focus:** Automatically detects active AI agent sessions running in normal terminal tabs and moves them into paired `<workspace>-agents` workspaces (e.g. `devel` → `devel-agents`, `~` → `~-agents`). If you were actively working in that tab, your view immediately switches to the agent workspace and focuses your new agent tab seamlessly.
 - 🎯 **Group Similar Agents by Recency:** In agent workspaces, similar agent tabs (all Cursor, all Devin, all Agy, etc.) are kept together in contiguous clusters and sorted based on recency of focus and activity.
 
 ---
