@@ -46,6 +46,10 @@ class TestAutoRouteAgents(unittest.TestCase):
         client.get_or_create_workspace.side_effect = lambda name: f"id_{name}"
 
         snap = {
+            "panes": [
+                {"pane_id": "p1", "workspace_id": "w_dev"},
+                {"pane_id": "p_shell", "workspace_id": "w_dev"},
+            ],
             "agents": [
                 {"pane_id": "p1", "agent": "cursor", "workspace_id": "w_dev", "focused": False},
                 {"pane_id": "p2", "agent": "cursor", "workspace_id": "w_dev_ag", "focused": True},
@@ -56,6 +60,57 @@ class TestAutoRouteAgents(unittest.TestCase):
 
         # p1 should move from w_dev to devel-agents (w_dev_ag)
         client.move_pane_to_workspace.assert_called_once_with("p1", "w_dev_ag", focus=False)
+        # Because w_dev still has p_shell, create_tab is not needed
+        client.create_tab.assert_not_called()
+
+    def test_auto_route_preserves_base_workspace_when_only_one_pane(self):
+        client = MagicMock()
+        client.is_available.return_value = True
+        client.call.return_value = {
+            "result": {
+                "workspaces": [
+                    {"label": "~", "workspace_id": "w_home", "pane_count": 1},
+                    {"label": "~-agents", "workspace_id": "w_home_ag"},
+                ]
+            }
+        }
+        client.get_or_create_workspace.side_effect = lambda name: f"id_{name}"
+
+        snap = {
+            "panes": [
+                {"pane_id": "p_only", "workspace_id": "w_home", "cwd": "/Users/test"},
+            ],
+            "agents": [
+                {"pane_id": "p_only", "agent": "agy", "workspace_id": "w_home", "cwd": "/Users/test", "focused": True},
+            ]
+        }
+
+        auto_route_agents(client, snap=snap)
+
+        # Must spawn replacement shell before moving so Herdr doesn't delete ~
+        client.create_tab.assert_called_once_with("w_home", cwd="/Users/test", focus=False)
+        client.move_pane_to_workspace.assert_called_once_with("p_only", "w_home_ag", focus=True)
+
+    def test_auto_route_restores_home_workspace_if_missing(self):
+        client = MagicMock()
+        client.is_available.return_value = True
+        client.call.return_value = {
+            "result": {
+                "workspaces": [
+                    {"label": "devel", "workspace_id": "w_dev"},
+                    {"label": "~-agents", "workspace_id": "w_home_ag"},
+                ]
+            }
+        }
+        snap = {"agents": []}
+
+        auto_route_agents(client, snap=snap)
+
+        # workspace.create must be called for ~
+        client.call.assert_any_call(
+            "workspace.create",
+            {"label": "~", "cwd": unittest.mock.ANY, "no_focus": True},
+        )
 
     def test_orphan_agent_workspace_resolution(self):
         workspaces_by_id = {

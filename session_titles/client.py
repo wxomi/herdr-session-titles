@@ -79,6 +79,19 @@ class HerdrClient:
         res = self.call("pane.report_metadata", params)
         return "result" in res
 
+    def create_tab(
+        self,
+        workspace_id: str,
+        cwd: str | None = None,
+        focus: bool = False,
+    ) -> str | None:
+        params: dict = {"workspace_id": workspace_id, "no_focus": not focus}
+        if cwd:
+            params["cwd"] = cwd
+        res = self.call("tab.create", params)
+        tab = (res.get("result") or {}).get("tab") or {}
+        return tab.get("tab_id")
+
     def rename_tab(self, tab_id: str, label: str) -> bool:
         res = self.call("tab.rename", {"tab_id": tab_id, "label": label})
         return "result" in res

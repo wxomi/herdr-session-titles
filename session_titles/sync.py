@@ -102,10 +102,6 @@ def auto_route_agents(
     if not snapshot:
         return
 
-    agents = snapshot.get("agents", [])
-    if not agents:
-        return
-
     workspaces = (
         (client.call("workspace.list").get("result") or {}).get("workspaces") or []
     )
@@ -125,6 +121,21 @@ def auto_route_agents(
         and ws.get("label") != "agents"
     }
 
+    # Ensure home base workspace '~' exists if '~-agents' exists
+    if "~-agents" in workspaces_by_name and "~" not in workspaces_by_name:
+        created = client.call(
+            "workspace.create",
+            {"label": "~", "cwd": os.path.expanduser("~"), "no_focus": True},
+        )
+        created_ws = (created.get("result") or {}).get("workspace") or {}
+        if created_ws.get("workspace_id"):
+            workspaces_by_name["~"] = created_ws["workspace_id"]
+            workspaces_by_id[created_ws["workspace_id"]] = created_ws
+
+    agents = snapshot.get("agents", [])
+    if not agents:
+        return
+
     moved = False
     for agent in agents:
         pid = agent.get("pane_id")
@@ -143,6 +154,35 @@ def auto_route_agents(
                 workspaces_by_name[target_name.lower()] = target_ws_id
 
         if target_ws_id and current_ws_id != target_ws_id:
+            # Check if moving this pane will leave a base workspace empty.
+            # Herdr automatically destroys any workspace that drops to 0 panes.
+            # To preserve base workspaces (e.g. '~' or 'devel'), spawn a replacement
+            # shell tab before moving the agent pane out.
+            current_ws = workspaces_by_id.get(current_ws_id, {})
+            current_label = current_ws.get("label") or ""
+            is_base_workspace = (
+                current_label
+                and not current_label.endswith("-agents")
+                and current_label != "agents"
+            )
+            if is_base_workspace:
+                current_panes = [
+                    p
+                    for p in snapshot.get("panes", [])
+                    if p.get("workspace_id") == current_ws_id
+                ]
+                if current_panes:
+                    needs_replacement = len(current_panes) <= 1
+                else:
+                    needs_replacement = current_ws.get("pane_count", 1) <= 1
+                if needs_replacement:
+                    cwd = (
+                        agent.get("cwd")
+                        or agent.get("foreground_cwd")
+                        or (os.path.expanduser("~") if current_label == "~" else None)
+                    )
+                    client.create_tab(current_ws_id, cwd=cwd, focus=False)
+
             is_focused = bool(
                 agent.get("focused")
                 or pid == snapshot.get("focused_pane_id")
