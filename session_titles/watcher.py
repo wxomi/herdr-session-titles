@@ -37,6 +37,7 @@ def watch(
     sync_tabs: bool = False,
     auto_route: bool | None = None,
     group_similar: bool | None = None,
+    cleanup_unused: bool | None = None,
     client: HerdrClient | None = None,
 ) -> int:
     """Run continuous sync loop until interrupted."""
@@ -50,6 +51,7 @@ def watch(
                 sync_tabs=sync_tabs,
                 auto_route=auto_route,
                 group_similar=group_similar,
+                cleanup_unused=cleanup_unused,
                 client=c,
             )
             time.sleep(WATCH_SECONDS)

@@ -6,6 +6,7 @@ import sys
 
 from session_titles.config import (
     AUTO_ROUTE_AGENTS,
+    CLEANUP_UNUSED_TABS,
     GROUP_SIMILAR_AGENTS,
     SYNC_TABS,
 )
@@ -21,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "Usage: python3 -m session_titles [--watch] [--pane PANE_ID] "
             "[--sync-tabs] [--auto-route] [--no-auto-route] "
-            "[--group-similar] [--no-group-similar]"
+            "[--group-similar] [--no-group-similar] "
+            "[--cleanup-unused] [--no-cleanup-unused]"
         )
         return 0
 
@@ -32,11 +34,15 @@ def main(argv: list[str] | None = None) -> int:
     group_similar = "--no-group-similar" not in args and (
         "--group-similar" in args or GROUP_SIMILAR_AGENTS
     )
+    cleanup_unused = "--no-cleanup-unused" not in args and (
+        "--cleanup-unused" in args or CLEANUP_UNUSED_TABS
+    )
     if "--watch" in args:
         return watch(
             sync_tabs=sync_tabs,
             auto_route=auto_route,
             group_similar=group_similar,
+            cleanup_unused=cleanup_unused,
         )
 
     only_pane = None
@@ -50,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         sync_tabs=sync_tabs,
         auto_route=auto_route,
         group_similar=group_similar,
+        cleanup_unused=cleanup_unused,
     )
     return 0
 

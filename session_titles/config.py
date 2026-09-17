@@ -33,6 +33,12 @@ GROUP_SIMILAR_AGENTS = os.environ.get(
     "HERDR_GROUP_SIMILAR_AGENTS", "true"
 ).lower() in ("true", "1", "yes")
 AGENTS_WORKSPACE_NAME = os.environ.get("HERDR_AGENTS_WORKSPACE", "agents")
+UNUSED_TAB_TTL_HOURS = float(os.environ.get("HERDR_UNUSED_TAB_TTL_HOURS", "24"))
+UNUSED_TAB_TTL_SECONDS = UNUSED_TAB_TTL_HOURS * 3600.0
+UNUSED_TABS_FILE = os.path.join(STATE_DIR, "unused_tabs.json")
+CLEANUP_UNUSED_TABS = os.environ.get(
+    "HERDR_CLEANUP_UNUSED_TABS", "true"
+).lower() in ("true", "1", "yes")
 
 GENERIC_CLI_TITLE = re.compile(
     r"^(devin|cursor|cursor-agent|agy|codex|claude|grok|pi|opencode|copilot|"

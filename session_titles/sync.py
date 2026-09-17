@@ -7,11 +7,13 @@ import time
 from session_titles.config import (
     AGENTS_WORKSPACE_NAME,
     AUTO_ROUTE_AGENTS,
+    CLEANUP_UNUSED_TABS,
     GENERIC_NAMES,
     GROUP_SIMILAR_AGENTS,
     SOURCE,
     SYNC_TABS,
 )
+from session_titles.cleanup import cleanup_unused_tabs, is_tab_idle_terminal
 from session_titles.client import HerdrClient, run_herdr_cli
 from session_titles.extractors import title_for_pane
 from session_titles.sanitize import agent_cwd, format_agent_location
@@ -268,9 +270,12 @@ def group_similar_agents_by_recency(
             tab_panes[tid].append(p)
 
     def tab_agent_kind(tab_id: str) -> str:
-        for p in tab_panes.get(tab_id, []):
+        panes_in_tab = tab_panes.get(tab_id, [])
+        if is_tab_idle_terminal(tab_id, panes_in_tab, agents_by_pane, client):
+            return "_unused"
+        for p in panes_in_tab:
             kind = get_pane_agent_kind(p, agents_by_pane)
-            if kind:
+            if kind and kind != "agent":
                 return kind
         return "agent"
 
@@ -301,9 +306,18 @@ def group_similar_agents_by_recency(
 
         current_kinds = [tab_agent_kind(t["tab_id"]) for t in ws_tabs]
 
-        # STABILITY GUARD: If all similar agents are already contiguous, do nothing!
+        # STABILITY GUARD: If already grouped AND _unused is at the end, do nothing!
         if is_already_grouped(current_kinds):
-            continue
+            has_seen_unused = False
+            violates_order = False
+            for k in current_kinds:
+                if k == "_unused":
+                    has_seen_unused = True
+                elif has_seen_unused:
+                    violates_order = True
+                    break
+            if not violates_order:
+                continue
 
         # Group tabs by agent kind, preserving existing order within each kind
         groups: dict[str, list[dict]] = collections.defaultdict(list)
@@ -311,15 +325,19 @@ def group_similar_agents_by_recency(
             kind = tab_agent_kind(t["tab_id"])
             groups[kind].append(t)
 
-        # Sort groups by the latest tab arrival in that group (newest group first)
+        # Sort active agent groups by latest tab arrival in that group (newest first)
+        active_kinds = [k for k in groups.keys() if k != "_unused"]
         sorted_kinds = sorted(
-            groups.keys(),
+            active_kinds,
             key=lambda k: max(
                 (_tab_first_seen.get(t["tab_id"], 0.0) for t in groups[k]),
                 default=0.0,
             ),
             reverse=True,
         )
+        # Unused/idle terminal tabs are ALWAYS placed at the very end (last tab positions)!
+        if "_unused" in groups:
+            sorted_kinds.append("_unused")
 
         desired_tabs: list[dict] = []
         for k in sorted_kinds:
@@ -395,6 +413,7 @@ def sync_all(
     sync_tabs: bool | None = None,
     auto_route: bool | None = None,
     group_similar: bool | None = None,
+    cleanup_unused: bool | None = None,
     client: HerdrClient | None = None,
 ) -> None:
     """Scan all active panes, resolve session titles, and update sidebar/tabs."""
@@ -416,6 +435,12 @@ def sync_all(
         if group_similar is None
         else group_similar
         or ("--group-similar" in sys.argv)
+    )
+    do_cleanup_unused = (
+        CLEANUP_UNUSED_TABS
+        if cleanup_unused is None
+        else cleanup_unused
+        or ("--cleanup-unused" in sys.argv)
     )
 
     snap = c.snapshot() if c.is_available() else {}
@@ -501,3 +526,6 @@ def sync_all(
 
     if do_group_similar and c.is_available() and not only_pane:
         group_similar_agents_by_recency(c, snap)
+
+    if do_cleanup_unused and c.is_available() and not only_pane:
+        cleanup_unused_tabs(c, snap)
