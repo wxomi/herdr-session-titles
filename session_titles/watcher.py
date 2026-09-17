@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import time
 
 from session_titles.config import PID_FILE, STATE_DIR, WATCH_SECONDS
@@ -10,8 +11,27 @@ from session_titles.client import HerdrClient
 from session_titles.sync import sync_all
 
 
+def is_watcher_pid_alive(pid: int) -> bool:
+    """Verify that the pid is actually alive and running session_titles."""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        proc = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        cmd = proc.stdout.strip()
+        return "session_titles" in cmd
+    except Exception:
+        return True
+
+
 def already_watching() -> bool:
-    """Check if another watcher process is currently active."""
+    """Check if another watcher process is currently active, cleaning up stale pidfiles."""
     try:
         with open(PID_FILE, encoding="utf-8") as handle:
             pid = int(handle.read().strip())
@@ -19,11 +39,47 @@ def already_watching() -> bool:
         return False
     if pid == os.getpid():
         return False
-    try:
-        os.kill(pid, 0)
+    if is_watcher_pid_alive(pid):
         return True
+
+    # Stale PID file: process is either gone or not session_titles. Clean it up.
+    try:
+        os.remove(PID_FILE)
     except OSError:
+        pass
+    return False
+
+
+def stop_watcher() -> bool:
+    """Terminate running watcher process if active and clean up PID file."""
+    try:
+        with open(PID_FILE, encoding="utf-8") as handle:
+            pid = int(handle.read().strip())
+    except (OSError, ValueError):
         return False
+    if is_watcher_pid_alive(pid):
+        try:
+            os.kill(pid, 15)  # SIGTERM
+            time.sleep(0.3)
+        except OSError:
+            pass
+    try:
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
+    except OSError:
+        pass
+    return True
+
+
+def get_watcher_status() -> dict:
+    """Return current watcher running state and PID."""
+    try:
+        with open(PID_FILE, encoding="utf-8") as handle:
+            pid = int(handle.read().strip())
+        alive = is_watcher_pid_alive(pid)
+        return {"running": alive, "pid": pid if alive else None}
+    except (OSError, ValueError):
+        return {"running": False, "pid": None}
 
 
 def write_pid() -> None:
