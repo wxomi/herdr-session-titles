@@ -12,7 +12,12 @@ from session_titles.config import (
     SYNC_TABS,
 )
 from session_titles.sync import sync_all
-from session_titles.watcher import get_watcher_status, stop_watcher, watch
+from session_titles.watcher import (
+    get_watcher_status,
+    start_daemon,
+    stop_watcher,
+    watch,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if "--help" in args or "-h" in args:
         print(
-            "Usage: python3 -m session_titles [--watch] [--restart] [--stop] [--status]\n"
+            "Usage: python3 -m session_titles [--start] [--watch] [--restart] [--stop] [--status]\n"
             "                                 [--pane PANE_ID] [--sync-tabs]\n"
             "                                 [--auto-route] [--no-auto-route]\n"
             "                                 [--group-similar] [--no-group-similar]\n"
@@ -56,12 +61,28 @@ def main(argv: list[str] | None = None) -> int:
     if "--restart" in args:
         stop_watcher()
         time.sleep(0.3)
-        return watch(
+        start_daemon(
             sync_tabs=sync_tabs,
             auto_route=auto_route,
             group_similar=group_similar,
             cleanup_unused=cleanup_unused,
         )
+        print("Watcher restarted in background.")
+        return 0
+
+    if "--start" in args or "--daemon" in args:
+        status = get_watcher_status()
+        if status["running"]:
+            print(f"Watcher is already running (PID {status['pid']}).")
+            return 0
+        start_daemon(
+            sync_tabs=sync_tabs,
+            auto_route=auto_route,
+            group_similar=group_similar,
+            cleanup_unused=cleanup_unused,
+        )
+        print("Watcher started in background.")
+        return 0
 
     if "--watch" in args:
         return watch(

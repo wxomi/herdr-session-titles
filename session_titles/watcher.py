@@ -5,6 +5,8 @@ from __future__ import annotations
 import fcntl
 import os
 import signal
+import subprocess
+import sys
 import time
 
 from session_titles.client import HerdrClient
@@ -163,4 +165,33 @@ def watch(
             lock.close()
         except Exception:
             pass
+    return 0
+
+
+def start_daemon(
+    sync_tabs: bool = False,
+    auto_route: bool | None = None,
+    group_similar: bool | None = None,
+    cleanup_unused: bool | None = None,
+) -> int:
+    """Launch watcher as a detached background daemon (setsid) without blocking terminal."""
+    if already_watching():
+        return 0
+    cmd = [sys.executable, "-m", "session_titles", "--watch"]
+    if sync_tabs:
+        cmd.append("--sync-tabs")
+    if auto_route is False:
+        cmd.append("--no-auto-route")
+    if group_similar is False:
+        cmd.append("--no-group-similar")
+    if cleanup_unused is False:
+        cmd.append("--no-cleanup-unused")
+
+    subprocess.Popen(
+        cmd,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
     return 0
