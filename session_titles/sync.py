@@ -415,7 +415,7 @@ def sync_all(
     group_similar: bool | None = None,
     cleanup_unused: bool | None = None,
     client: HerdrClient | None = None,
-) -> None:
+) -> bool:
     """Scan all active panes, resolve session titles, and update sidebar/tabs."""
     c = client or HerdrClient()
     do_sync_tabs = (
@@ -529,3 +529,5 @@ def sync_all(
 
     if do_cleanup_unused and c.is_available() and not only_pane:
         cleanup_unused_tabs(c, snap)
+
+    return bool(agents)

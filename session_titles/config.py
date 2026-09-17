@@ -20,7 +20,10 @@ STATE_DIR = os.environ.get(
     os.path.expanduser("~/.config/herdr/plugins/state/wxomi.session-titles"),
 )
 PID_FILE = os.path.join(STATE_DIR, "watch.pid")
+LOCK_FILE = os.path.join(STATE_DIR, "watcher.lock")
 WATCH_SECONDS = float(os.environ.get("HERDR_SESSION_TITLES_INTERVAL", "2"))
+IDLE_WATCH_SECONDS = float(os.environ.get("HERDR_SESSION_TITLES_IDLE_INTERVAL", "5"))
+CLEANUP_INTERVAL_SECONDS = float(os.environ.get("HERDR_CLEANUP_INTERVAL_SECONDS", "60"))
 SYNC_TABS = os.environ.get("HERDR_SESSION_TITLES_SYNC_TABS", "false").lower() in (
     "true",
     "1",

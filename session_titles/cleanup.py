@@ -9,6 +9,7 @@ import time
 from typing import TYPE_CHECKING
 
 from session_titles.config import (
+    CLEANUP_INTERVAL_SECONDS,
     STATE_DIR,
     UNUSED_TAB_TTL_SECONDS,
     UNUSED_TABS_FILE,
@@ -21,11 +22,17 @@ SHELL_NAMES = frozenset(
     {"zsh", "bash", "sh", "fish", "-zsh", "-bash", "-sh", "-fish"}
 )
 
+_SHELL_START_TIME_CACHE: dict[int, float] = {}
+_LAST_CLEANUP_TIME: float = 0.0
+
 
 def get_shell_start_time(pid: int) -> float | None:
-    """Retrieve process start time via ps as a Unix timestamp."""
+    """Retrieve process start time via ps as a Unix timestamp, cached in memory."""
     if not pid or pid <= 1:
         return None
+    cached = _SHELL_START_TIME_CACHE.get(pid)
+    if cached is not None:
+        return cached
     try:
         proc = subprocess.run(
             ["ps", "-p", str(pid), "-o", "lstart="],
@@ -36,7 +43,9 @@ def get_shell_start_time(pid: int) -> float | None:
         out = proc.stdout.strip()
         if out:
             # Format: 'Tue Sep 15 21:34:49 2026'
-            return time.mktime(time.strptime(out))
+            t = time.mktime(time.strptime(out))
+            _SHELL_START_TIME_CACHE[pid] = t
+            return t
     except Exception:
         pass
     return None
@@ -124,17 +133,24 @@ def cleanup_unused_tabs(
     client: HerdrClient,
     snap: dict | None = None,
     ttl_seconds: float | None = None,
+    force: bool = False,
 ) -> list[str]:
     """Track idle terminal tabs and close any that have exceeded the TTL."""
+    global _LAST_CLEANUP_TIME
     if not client.is_available():
         return []
 
+    now = time.time()
+    if snap is not None and not force:
+        if (now - _LAST_CLEANUP_TIME) < CLEANUP_INTERVAL_SECONDS:
+            return []
+
+    _LAST_CLEANUP_TIME = now
     snapshot = snap if snap is not None else client.snapshot()
     if not snapshot:
         return []
 
     ttl = ttl_seconds if ttl_seconds is not None else UNUSED_TAB_TTL_SECONDS
-    now = time.time()
     tabs = [t for t in snapshot.get("tabs", []) if isinstance(t, dict)]
     panes = [p for p in snapshot.get("panes", []) if isinstance(p, dict)]
     agents = snapshot.get("agents", [])

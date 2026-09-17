@@ -1,92 +1,106 @@
-"""Daemon process management and periodic watch loop."""
+"""Daemon process management, flock concurrency, and adaptive watch loop."""
 
 from __future__ import annotations
 
+import fcntl
 import os
-import subprocess
+import signal
 import time
 
-from session_titles.config import PID_FILE, STATE_DIR, WATCH_SECONDS
 from session_titles.client import HerdrClient
+from session_titles.config import (
+    IDLE_WATCH_SECONDS,
+    LOCK_FILE,
+    PID_FILE,
+    STATE_DIR,
+    WATCH_SECONDS,
+)
 from session_titles.sync import sync_all
 
 
-def is_watcher_pid_alive(pid: int) -> bool:
-    """Verify that the pid is actually alive and running session_titles."""
+def acquire_watcher_lock() -> object | None:
+    """Acquire exclusive non-blocking flock on LOCK_FILE.
+
+    Returns the open file object if acquired, or None if held by another process.
+    The OS automatically releases the flock when the process terminates for any reason.
+    """
+    os.makedirs(STATE_DIR, exist_ok=True)
     try:
-        os.kill(pid, 0)
+        f = open(LOCK_FILE, "a+", encoding="utf-8")
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            f.seek(0)
+            f.truncate()
+            f.write(f"{os.getpid()}\n")
+            f.flush()
+            return f
+        except (BlockingIOError, OSError):
+            f.close()
+            return None
     except OSError:
-        return False
-    try:
-        proc = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "command="],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        cmd = proc.stdout.strip()
-        return "session_titles" in cmd
-    except Exception:
-        return True
+        return None
 
 
 def already_watching() -> bool:
-    """Check if another watcher process is currently active, cleaning up stale pidfiles."""
+    """Check if another watcher process is currently running via non-blocking flock test."""
+    os.makedirs(STATE_DIR, exist_ok=True)
     try:
-        with open(PID_FILE, encoding="utf-8") as handle:
-            pid = int(handle.read().strip())
-    except (OSError, ValueError):
-        return False
-    if pid == os.getpid():
-        return False
-    if is_watcher_pid_alive(pid):
-        return True
-
-    # Stale PID file: process is either gone or not session_titles. Clean it up.
-    try:
-        os.remove(PID_FILE)
-    except OSError:
-        pass
-    return False
-
-
-def stop_watcher() -> bool:
-    """Terminate running watcher process if active and clean up PID file."""
-    try:
-        with open(PID_FILE, encoding="utf-8") as handle:
-            pid = int(handle.read().strip())
-    except (OSError, ValueError):
-        return False
-    if is_watcher_pid_alive(pid):
+        f = open(LOCK_FILE, "a+", encoding="utf-8")
         try:
-            os.kill(pid, 15)  # SIGTERM
-            time.sleep(0.3)
-        except OSError:
-            pass
-    try:
-        if os.path.exists(PID_FILE):
-            os.remove(PID_FILE)
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # Acquired lock successfully: no watcher is running!
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            f.close()
+            return False
+        except (BlockingIOError, OSError):
+            # Lock is held by another active process
+            f.close()
+            return True
     except OSError:
-        pass
-    return True
+        return False
 
 
 def get_watcher_status() -> dict:
     """Return current watcher running state and PID."""
+    os.makedirs(STATE_DIR, exist_ok=True)
     try:
-        with open(PID_FILE, encoding="utf-8") as handle:
-            pid = int(handle.read().strip())
-        alive = is_watcher_pid_alive(pid)
-        return {"running": alive, "pid": pid if alive else None}
-    except (OSError, ValueError):
+        f = open(LOCK_FILE, "a+", encoding="utf-8")
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            f.close()
+            return {"running": False, "pid": None}
+        except (BlockingIOError, OSError):
+            # Lock is held: read PID
+            f.seek(0)
+            pid_str = f.read().strip()
+            f.close()
+            try:
+                pid = int(pid_str)
+            except ValueError:
+                pid = None
+            return {"running": True, "pid": pid}
+    except OSError:
         return {"running": False, "pid": None}
 
 
-def write_pid() -> None:
-    """Record current process ID in the plugin state directory."""
-    os.makedirs(STATE_DIR, exist_ok=True)
-    with open(PID_FILE, "w", encoding="utf-8") as handle:
-        handle.write(str(os.getpid()))
+def stop_watcher() -> bool:
+    """Terminate running watcher process if active and clean up legacy PID file."""
+    status = get_watcher_status()
+    if status["running"] and status["pid"]:
+        try:
+            os.kill(status["pid"], signal.SIGTERM)
+            time.sleep(0.3)
+        except OSError:
+            pass
+
+    # Clean up legacy PID file if present
+    if os.path.exists(PID_FILE):
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
+    return True
 
 
 def watch(
@@ -96,29 +110,57 @@ def watch(
     cleanup_unused: bool | None = None,
     client: HerdrClient | None = None,
 ) -> int:
-    """Run continuous sync loop until interrupted."""
-    if already_watching():
+    """Run continuous sync loop until interrupted or superseded by new Herdr server."""
+    lock = acquire_watcher_lock()
+    if lock is None:
+        # Another watcher instance is already running
         return 0
-    write_pid()
+
+    # Clean up legacy PID file
+    if os.path.exists(PID_FILE):
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
+
     c = client or HerdrClient()
+    initial_server = c.server_identity()
+    consecutive_misses = 0
+
     try:
         while True:
-            sync_all(
+            # Check Herdr socket lifecycle:
+            curr_server = c.server_identity()
+            if curr_server is not None:
+                consecutive_misses = 0
+                if initial_server is None:
+                    initial_server = curr_server
+                elif curr_server != initial_server:
+                    # Socket inode changed: Herdr restarted or successor launched
+                    break
+            else:
+                consecutive_misses += 1
+                # If Herdr has been down/closed for > 15s (3-5 iterations), exit cleanly
+                if consecutive_misses >= 5:
+                    break
+
+            has_active = sync_all(
                 sync_tabs=sync_tabs,
                 auto_route=auto_route,
                 group_similar=group_similar,
                 cleanup_unused=cleanup_unused,
                 client=c,
             )
-            time.sleep(WATCH_SECONDS)
+
+            # Adaptive sleeping: 2s when active agents running, 5s when idle
+            sleep_duration = WATCH_SECONDS if has_active else IDLE_WATCH_SECONDS
+            time.sleep(sleep_duration)
     except KeyboardInterrupt:
         return 0
     finally:
         try:
-            if os.path.exists(PID_FILE):
-                with open(PID_FILE, encoding="utf-8") as handle:
-                    if handle.read().strip() == str(os.getpid()):
-                        os.remove(PID_FILE)
-        except OSError:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
+        except Exception:
             pass
     return 0

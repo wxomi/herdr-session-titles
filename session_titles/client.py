@@ -20,6 +20,16 @@ class HerdrClient:
     def is_available(self) -> bool:
         return bool(self.sock_path and os.path.exists(self.sock_path))
 
+    def server_identity(self) -> tuple[int, int] | None:
+        """Return (dev, ino) of the Herdr socket file, or None if unavailable."""
+        if not self.sock_path:
+            return None
+        try:
+            st = os.stat(self.sock_path)
+            return (st.st_dev, st.st_ino)
+        except OSError:
+            return None
+
     def call(self, method: str, params: dict | None = None, req_id: str = "p") -> dict:
         if not self.is_available():
             return {}
