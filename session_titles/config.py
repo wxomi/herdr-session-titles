@@ -14,10 +14,18 @@ SOCKET_PATH = os.environ.get(
 DEVIN_DB = os.path.expanduser("~/.local/share/devin/cli/sessions.db")
 LOCK_DIR = os.path.expanduser("~/.local/share/devin/cli/session_locks")
 KIRO_SESSIONS = os.path.expanduser("~/.kiro/sessions/cli")
+KIRO_DASHBOARD_META = os.environ.get(
+    "KIRO_DASHBOARD_META",
+    os.path.expanduser("~/.kiro/sessions/dashboard-meta.json"),
+)
 AGY_HOME = os.path.expanduser("~/.gemini/antigravity-cli")
 STATE_DIR = os.environ.get(
     "HERDR_PLUGIN_STATE_DIR",
-    os.path.expanduser("~/.config/herdr/plugins/state/wxomi.session-titles"),
+    os.path.expanduser("~/.local/state/herdr/plugins/wxomi.session-titles")
+    if os.path.isdir(
+        os.path.expanduser("~/.local/state/herdr/plugins/wxomi.session-titles")
+    )
+    else os.path.expanduser("~/.config/herdr/plugins/state/wxomi.session-titles"),
 )
 PID_FILE = os.path.join(STATE_DIR, "watch.pid")
 LOCK_FILE = os.path.join(STATE_DIR, "watcher.lock")
@@ -80,6 +88,12 @@ DEVIN_SESSION_RESET = re.compile(
 )
 KIRO_SESSION_ID = re.compile(
     r"(?:Loaded session|session_id|--resume(?:-id)?=)\s*([0-9a-fA-F-]{36})",
+    re.I,
+)
+KIRO_PREFIX = re.compile(r"^(?:kiro-cli|kiro(?!\s*-\s*cli))\s*[:\-]\s*", re.I)
+KIRO_TAB_PREFIX = KIRO_PREFIX
+KIRO_RENAMED = re.compile(
+    r'(?:Session renamed to|Title set:)\s*(?:kiro:\s*)?"?([^"\n\r]+)"?',
     re.I,
 )
 AGY_CONVERSATION_ID = re.compile(

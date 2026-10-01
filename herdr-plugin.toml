@@ -1,6 +1,6 @@
 id = "wxomi.session-titles"
 name = "Session Titles"
-version = "0.6.3"
+version = "0.6.4"
 min_herdr_version = "0.8.0"
 description = "Real AI agent session titles & prompt extraction for Herdr sidebar and tabs"
 platforms = ["linux", "macos"]
@@ -8,4 +8,4 @@ platforms = ["linux", "macos"]
 # Background daemon handles refresh and title sync cleanly.
 # NO [[events]] to prevent recursive IPC event storms.
 [[startup]]
-command = ["/Users/wxomi/.local/share/herdr-session-titles/run.sh", "--watch"]
+command = ["./run.sh", "--watch"]
