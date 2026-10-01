@@ -99,10 +99,11 @@ class KiroExtractorTests(unittest.TestCase):
         self.assertFalse(extractor.matches({"agent": "cursor"}, {}))
         self.assertFalse(extractor.matches({"agent": None, "terminal_title": "zsh"}, {}))
 
+    @patch("session_titles.extractors.kiro.is_pid_alive", return_value=True)
     @patch("session_titles.extractors.kiro.pane_process_ids")
     @patch("session_titles.extractors.kiro.pid_ancestors")
     def test_extract_kiro_title_from_lock_file(
-        self, mock_ancestors: MagicMock, mock_pane_pids: MagicMock
+        self, mock_ancestors: MagicMock, mock_pane_pids: MagicMock, mock_is_alive: MagicMock
     ) -> None:
         session_id = "active-lock-session"
         lock_file = os.path.join(self.cli_dir, f"{session_id}.lock")
@@ -190,10 +191,11 @@ class KiroExtractorTests(unittest.TestCase):
             title = extract_kiro_title("p1", agent, mock_client, pane=pane)
             self.assertEqual(title, "Behaviour Changes")
 
+    @patch("session_titles.extractors.kiro.is_pid_alive", return_value=True)
     @patch("session_titles.extractors.kiro.pane_process_ids")
     @patch("session_titles.extractors.kiro.pid_ancestors")
     def test_extract_kiro_title_from_dashboard_meta(
-        self, mock_ancestors: MagicMock, mock_pane_pids: MagicMock
+        self, mock_ancestors: MagicMock, mock_pane_pids: MagicMock, mock_is_alive: MagicMock
     ) -> None:
         session_id = "session-with-meta"
         lock_file = os.path.join(self.cli_dir, f"{session_id}.lock")

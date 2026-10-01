@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 from session_titles.config import (
@@ -37,27 +38,90 @@ SPINNER_PREFIX = re.compile(
     re.UNICODE,
 )
 
+_locks_cache: tuple[float, str, list[tuple[str, int]]] = (0.0, "", [])
+
+
+def is_pid_alive(pid: int) -> bool:
+    """Fast check whether a process ID is currently running."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
 
 def pid_ancestors(pid: int, limit: int = 10) -> set[int]:
-    """Find parent processes up to limit hops."""
+    """Find parent processes up to limit hops using fast /proc or ps fallback."""
     found = {pid}
     current = pid
     for _ in range(limit):
-        proc = subprocess.run(
-            ["ps", "-p", str(current), "-o", "ppid="],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        parent = 0
+        # Fast path on Linux: read /proc/<pid>/stat directly without fork/exec
         try:
-            parent = int(proc.stdout.strip() or "0")
-        except ValueError:
-            break
+            with open(f"/proc/{current}/stat", "rb") as handle:
+                content = handle.read()
+                rparen = content.rfind(b")")
+                parent = int(content[rparen + 2 :].split()[1])
+        except (OSError, IndexError, ValueError):
+            # Fallback for macOS or environments without /proc
+            proc = subprocess.run(
+                ["ps", "-p", str(current), "-o", "ppid="],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            try:
+                parent = int(proc.stdout.strip() or "0")
+            except ValueError:
+                break
         if parent <= 1 or parent in found:
             break
         found.add(parent)
         current = parent
     return found
+
+
+def active_kiro_locks(max_age: float = 2.0) -> list[tuple[str, int]]:
+    """Scan and return (session_id, pid) pairs for active Kiro lock files, cached briefly."""
+    global _locks_cache
+    now = time.time()
+    if _locks_cache[1] == KIRO_SESSIONS and now - _locks_cache[0] < max_age:
+        return _locks_cache[2]
+
+    results: list[tuple[str, int]] = []
+    dirs_to_check = [KIRO_SESSIONS]
+    parent = os.path.dirname(KIRO_SESSIONS)
+    if os.path.isdir(parent):
+        try:
+            cli_base = os.path.basename(KIRO_SESSIONS)
+            for entry in os.scandir(parent):
+                if entry.is_dir(follow_symlinks=False) and entry.name != cli_base:
+                    dirs_to_check.append(entry.path)
+        except OSError:
+            pass
+
+    for d in dirs_to_check:
+        if not os.path.isdir(d):
+            continue
+        try:
+            for entry in os.scandir(d):
+                if entry.name.endswith(".lock"):
+                    try:
+                        with open(entry.path, encoding="utf-8") as handle:
+                            payload = json.load(handle)
+                        pid = int(payload.get("pid") or 0)
+                        if pid and is_pid_alive(pid):
+                            session_id = entry.name[:-5]
+                            results.append((session_id, pid))
+                    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                        continue
+        except OSError:
+            continue
+
+    _locks_cache = (now, KIRO_SESSIONS, results)
+    return results
 
 
 def kiro_title_from_terminal(title: str | None, cwd: str | None = None) -> str | None:
@@ -200,7 +264,7 @@ def extract_kiro_title(
     a_dict = agent or {}
     cwd = agent_cwd(p_dict, a_dict)
 
-    # 1. Explicit pane label if user renamed pane in Herdr
+    # 1. Explicit pane label if user renamed pane in Herdr (0ms)
     pane_label = p_dict.get("label")
     if isinstance(pane_label, str) and pane_label.strip():
         cleaned_pane = pane_label.strip()
@@ -209,7 +273,7 @@ def extract_kiro_title(
             if sanitized_pane:
                 return sanitized_pane
 
-    # 2. Terminal title (explicit /title in kiro-cli, or kiro terminal title update)
+    # 2. Terminal title (explicit /title in kiro-cli, or kiro terminal title update) (0ms)
     for field in ("terminal_title_stripped", "terminal_title"):
         for source in (p_dict, a_dict):
             val = source.get(field)
@@ -218,40 +282,14 @@ def extract_kiro_title(
                 if term_title:
                     return term_title
 
-    # 3. Read output for explicit rename confirmations in scrollback
-    raw_output = read_output(pane_id, client, lines=80)
-    output = raw_output if isinstance(raw_output, str) else ""
-    renamed = extract_kiro_rename(output)
-    if renamed:
-        return renamed
-
-    # 4. Resolve session_id
+    # 3. Resolve session_id via process ancestry from active locks (<3ms)
     session_id: str | None = None
     pane_pids = pane_process_ids(pane_id, client)
     if pane_pids and os.path.isdir(KIRO_SESSIONS):
-        lock_paths = [
-            os.path.join(KIRO_SESSIONS, name)
-            for name in os.listdir(KIRO_SESSIONS)
-            if name.endswith(".lock")
-        ]
-        lock_paths.extend(
-            glob.glob(os.path.join(os.path.dirname(KIRO_SESSIONS), "*", "*.lock"))
-        )
-        for path in lock_paths:
-            try:
-                with open(path, encoding="utf-8") as handle:
-                    payload = json.load(handle)
-                lock_pid = int(payload.get("pid") or 0)
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                continue
-            if lock_pid and (pane_pids & pid_ancestors(lock_pid)):
-                session_id = os.path.splitext(os.path.basename(path))[0]
+        for lock_sid, lock_pid in active_kiro_locks():
+            if pane_pids & pid_ancestors(lock_pid):
+                session_id = lock_sid
                 break
-
-    if not session_id and output:
-        match = KIRO_SESSION_ID.search(output)
-        if match:
-            session_id = match.group(1)
 
     if not session_id:
         session = a_dict.get("agent_session")
@@ -268,10 +306,29 @@ def extract_kiro_title(
         if json_title:
             return json_title
 
-    # 5. Tab label if explicitly renamed in Herdr
+    # 4. Tab label if explicitly renamed in Herdr (0ms)
     tab_title = kiro_title_from_tab(tab_label, cwd)
     if tab_title:
         return tab_title
+
+    # 5. Deferred read_output: only read IPC scrollback if no title was resolved yet
+    raw_output = read_output(pane_id, client, lines=80)
+    output = raw_output if isinstance(raw_output, str) else ""
+
+    renamed = extract_kiro_rename(output)
+    if renamed:
+        return renamed
+
+    if not session_id and output:
+        match = KIRO_SESSION_ID.search(output)
+        if match:
+            session_id = match.group(1)
+            meta_title = kiro_title_from_meta(session_id)
+            if meta_title:
+                return meta_title
+            json_title = kiro_title_from_id(session_id)
+            if json_title:
+                return json_title
 
     # 6. Fallback to first user prompt in output
     return first_user_prompt_title(output)
