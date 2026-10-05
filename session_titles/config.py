@@ -44,6 +44,15 @@ GROUP_SIMILAR_AGENTS = os.environ.get(
     "HERDR_GROUP_SIMILAR_AGENTS", "true"
 ).lower() in ("true", "1", "yes")
 AGENTS_WORKSPACE_NAME = os.environ.get("HERDR_AGENTS_WORKSPACE", "agents")
+BASE_WORKSPACES = set(
+    filter(
+        None,
+        [
+            w.strip()
+            for w in os.environ.get("HERDR_BASE_WORKSPACES", "devel,~,auction").split(",")
+        ],
+    )
+)
 UNUSED_TAB_TTL_HOURS = float(os.environ.get("HERDR_UNUSED_TAB_TTL_HOURS", "24"))
 UNUSED_TAB_TTL_SECONDS = UNUSED_TAB_TTL_HOURS * 3600.0
 UNUSED_TABS_FILE = os.path.join(STATE_DIR, "unused_tabs.json")

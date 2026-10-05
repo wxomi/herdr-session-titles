@@ -32,6 +32,19 @@ class TestAutoRouteAgents(unittest.TestCase):
         ag_home_agents = {"pane_id": "p4", "workspace_id": "w_home_agents"}
         self.assertIsNone(target_workspace_for_agent(ag_home_agents, workspaces_without_home))
 
+    def test_custom_task_workspace_never_auto_routes(self):
+        workspaces_by_id = {
+            "w_dev": {"label": "devel", "workspace_id": "w_dev"},
+            "w_task": {"label": "Prod Monitoring", "workspace_id": "w_task"},
+        }
+        ag_task = {
+            "pane_id": "p_task",
+            "workspace_id": "w_task",
+            "cwd": "/home/wxomi/work/repo/devel",
+        }
+        # Custom task workspace must NEVER be auto-routed into 'Prod Monitoring-agents'
+        self.assertIsNone(target_workspace_for_agent(ag_task, workspaces_by_id))
+
     def test_auto_route_moves_to_paired_workspace(self):
         client = MagicMock()
         client.is_available.return_value = True

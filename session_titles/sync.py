@@ -1,5 +1,6 @@
 from __future__ import annotations
 import collections
+import json
 import os
 import sys
 import time
@@ -7,6 +8,7 @@ import time
 from session_titles.config import (
     AGENTS_WORKSPACE_NAME,
     AUTO_ROUTE_AGENTS,
+    BASE_WORKSPACES,
     CLEANUP_UNUSED_TABS,
     GENERIC_NAMES,
     GROUP_SIMILAR_AGENTS,
@@ -30,17 +32,25 @@ def target_workspace_for_agent(
     current_label = current_ws.get("label") or ""
 
     # Do not auto-route agents that are in a custom task group or workspace
-    state_file = os.path.expanduser("~/.config/herdr/plugins/task_groups/group_state.json")
-    if os.path.exists(state_file):
-        try:
-            with open(state_file, encoding="utf-8") as f:
-                tg_data = json.load(f)
-                custom_groups = tg_data.get("custom_groups", {})
-                pid = agent.get("pane_id")
-                if pid in custom_groups or current_label in custom_groups.values():
-                    return None
-        except Exception:
-            pass
+    pid = agent.get("pane_id")
+    for state_path in (
+        os.path.expanduser("~/.config/herdr/plugins/task_groups/group_state.json"),
+        os.path.expanduser("~/.local/state/herdr/plugins/wxomi.task-groups/group_state.json"),
+    ):
+        if os.path.exists(state_path):
+            try:
+                with open(state_path, encoding="utf-8") as f:
+                    tg_data = json.load(f)
+                    custom_groups = tg_data.get("custom_groups", {})
+                    group_names = {str(g).lower() for g in custom_groups.values()}
+                    if pid and pid in custom_groups:
+                        return None
+                    if current_label.lower() in group_names:
+                        return None
+                    if current_label.endswith("-agents") and current_label[:-7].lower() in group_names:
+                        return None
+            except Exception:
+                pass
 
     # STRICT GUARD 1: Canonical agent workspaces NEVER route anywhere else
     if current_label in ("~-agents", "devel-agents"):
@@ -58,6 +68,7 @@ def target_workspace_for_agent(
         if ws.get("label")
         and not ws.get("label").endswith("-agents")
         and ws.get("label") != "agents"
+        and ws.get("label") in BASE_WORKSPACES
     }
 
     # If in an agent workspace whose base workspace is valid or home, leave it
@@ -67,40 +78,47 @@ def target_workspace_for_agent(
             return None
 
     # If in a normal base workspace (e.g. 'devel' or '~'), pair with '{label}-agents'
-    if current_label in base_workspaces:
+    if current_label in base_workspaces or current_label in BASE_WORKSPACES:
         return f"{current_label}-agents"
     if current_label == "~":
         return "~-agents"
 
     # Fallback for orphan agent workspaces (e.g. 'auction-agents') or legacy 'agents':
     # Match against base workspaces using cwd
-    cwd = agent.get("cwd") or ""
-    if cwd:
-        norm_cwd = os.path.normpath(cwd)
-        path_parts = norm_cwd.split(os.sep)
-        for base_name in base_workspaces:
-            if base_name != "~" and base_name in path_parts:
-                return f"{base_name}-agents"
+    if current_label.endswith("-agents") or current_label == "agents":
+        cwd = agent.get("cwd") or ""
+        if cwd:
+            norm_cwd = os.path.normpath(cwd)
+            path_parts = norm_cwd.split(os.sep)
+            for base_name in base_workspaces:
+                if base_name != "~" and base_name in path_parts:
+                    return f"{base_name}-agents"
 
-        home = os.path.expanduser("~")
-        if norm_cwd == home or norm_cwd.startswith(home):
-            return "~-agents"
+            home = os.path.expanduser("~")
+            if norm_cwd == home or norm_cwd.startswith(home):
+                return "~-agents"
 
-    tokens = agent.get("tokens") or {}
-    loc = tokens.get("location") or ""
-    if "·" in loc:
-        proj = loc.split("·", 1)[1].strip()
-        for base_name in base_workspaces:
-            if base_name.lower() == proj.lower():
-                return f"{base_name}-agents"
+        tokens = agent.get("tokens") or {}
+        loc = tokens.get("location") or ""
+        if "·" in loc:
+            proj = loc.split("·", 1)[1].strip()
+            for base_name in base_workspaces:
+                if base_name.lower() == proj.lower():
+                    return f"{base_name}-agents"
 
-    # Default fallback ONLY for non-agent workspaces
+    # Default fallback ONLY for existing paired workspaces
+    existing_agent_labels = {
+        (ws.get("label") or "").lower()
+        for ws in workspaces_by_id.values()
+    }
     if (
         current_label
         and not current_label.endswith("-agents")
         and current_label != "agents"
     ):
-        return f"{current_label}-agents"
+        target = f"{current_label}-agents"
+        if target.lower() in existing_agent_labels:
+            return target
 
     return None
 
