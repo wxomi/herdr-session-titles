@@ -1,23 +1,11 @@
 id = "wxomi.session-titles"
 name = "Session Titles"
-version = "0.6.2"
+version = "0.6.3"
 min_herdr_version = "0.8.0"
-description = "Optimized agent session titles + paired <workspace>-agents + 24h idle terminal auto-cleanup"
+description = "Real AI agent session titles & prompt extraction for Herdr sidebar and tabs"
 platforms = ["linux", "macos"]
 
-# Background refresh so titles stay current as sessions rename themselves.
+# Background daemon handles refresh and title sync cleanly.
+# NO [[events]] to prevent recursive IPC event storms.
 [[startup]]
-command = ["python3", "-m", "session_titles", "--watch"]
-
-[[events]]
-on = "pane.agent_status_changed"
-command = ["python3", "-m", "session_titles"]
-
-[[events]]
-on = "pane.agent_detected"
-command = ["python3", "-m", "session_titles"]
-
-[[events]]
-on = "tab.focused"
-command = ["python3", "-m", "session_titles"]
-
+command = ["/Users/wxomi/.local/share/herdr-session-titles/run.sh", "--watch"]
