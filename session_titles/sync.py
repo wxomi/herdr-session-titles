@@ -29,6 +29,19 @@ def target_workspace_for_agent(
     current_ws = workspaces_by_id.get(current_ws_id, {})
     current_label = current_ws.get("label") or ""
 
+    # Do not auto-route agents that are in a custom task group or workspace
+    state_file = os.path.expanduser("~/.config/herdr/plugins/task_groups/group_state.json")
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, encoding="utf-8") as f:
+                tg_data = json.load(f)
+                custom_groups = tg_data.get("custom_groups", {})
+                pid = agent.get("pane_id")
+                if pid in custom_groups or current_label in custom_groups.values():
+                    return None
+        except Exception:
+            pass
+
     # STRICT GUARD 1: Canonical agent workspaces NEVER route anywhere else
     if current_label in ("~-agents", "devel-agents"):
         return None
