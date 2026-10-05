@@ -249,6 +249,32 @@ class KiroExtractorTests(unittest.TestCase):
         title = extract_kiro_title("p1", {}, mock_client, tab_label="61 · Synced Tab Title")
         self.assertEqual(title, "Synced Tab Title")
 
+    def test_extract_kiro_title_prefers_terminal_title_over_existing_pane_label(self) -> None:
+        mock_client = MagicMock(spec=HerdrClient)
+        # Pane already has a label reported in a previous cycle
+        pane = {
+            "label": "Behaviour Changes",
+            "tokens": {"session": "Behaviour Changes"},
+            "terminal_title": "kiro: Questionnaire for Aditya",
+            "cwd": "/home/wxomi/work/repo/devel/auction",
+        }
+        title = extract_kiro_title("p1", {}, mock_client, pane=pane)
+        self.assertEqual(title, "Questionnaire for Aditya")
+
+    @patch("session_titles.extractors.kiro.read_output")
+    def test_extract_kiro_title_ignores_self_reported_tokens_for_pane_label(
+        self, mock_read_output: MagicMock
+    ) -> None:
+        mock_client = MagicMock(spec=HerdrClient)
+        mock_read_output.return_value = "> Write a script to test latency\n"
+        # Pane has label that equals tokens["session"], so it should not be treated as a manual override
+        pane = {
+            "label": "Old Daemon Title",
+            "tokens": {"session": "Old Daemon Title"},
+        }
+        title = extract_kiro_title("p1", {}, mock_client, pane=pane)
+        self.assertEqual(title, "Write a script to test latency")
+
 
 if __name__ == "__main__":
     unittest.main()

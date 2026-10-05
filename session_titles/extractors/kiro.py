@@ -264,16 +264,7 @@ def extract_kiro_title(
     a_dict = agent or {}
     cwd = agent_cwd(p_dict, a_dict)
 
-    # 1. Explicit pane label if user renamed pane in Herdr (0ms)
-    pane_label = p_dict.get("label")
-    if isinstance(pane_label, str) and pane_label.strip():
-        cleaned_pane = pane_label.strip()
-        if not NUMERIC_TAB.match(cleaned_pane) and cleaned_pane.lower() not in GENERIC_NAMES:
-            sanitized_pane = sanitize(cleaned_pane)
-            if sanitized_pane:
-                return sanitized_pane
-
-    # 2. Terminal title (explicit /title in kiro-cli, or kiro terminal title update) (0ms)
+    # 1. Terminal title (explicit /title in kiro-cli, or kiro terminal title update) (0ms)
     for field in ("terminal_title_stripped", "terminal_title"):
         for source in (p_dict, a_dict):
             val = source.get(field)
@@ -329,6 +320,20 @@ def extract_kiro_title(
             json_title = kiro_title_from_id(session_id)
             if json_title:
                 return json_title
+
+    # 5. Explicit pane label if user renamed pane in Herdr (not daemon-reported session title) (0ms)
+    pane_label = p_dict.get("label")
+    tokens_session = (p_dict.get("tokens") or {}).get("session")
+    if (
+        isinstance(pane_label, str)
+        and pane_label.strip()
+        and pane_label != tokens_session
+    ):
+        cleaned_pane = pane_label.strip()
+        if not NUMERIC_TAB.match(cleaned_pane) and cleaned_pane.lower() not in GENERIC_NAMES:
+            sanitized_pane = sanitize(cleaned_pane)
+            if sanitized_pane:
+                return sanitized_pane
 
     # 6. Fallback to first user prompt in output
     return first_user_prompt_title(output)
