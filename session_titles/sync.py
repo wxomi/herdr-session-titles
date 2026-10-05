@@ -22,6 +22,45 @@ from session_titles.sanitize import agent_cwd, format_agent_location
 
 
 
+_GROUP_STATE_CACHE: tuple[float, dict, set[str]] = (0.0, {}, set())
+
+
+def _load_cached_group_state() -> tuple[dict, set[str]]:
+    """Load custom group state from task_groups plugin with mtime caching."""
+    global _GROUP_STATE_CACHE
+    paths = (
+        os.path.expanduser("~/.config/herdr/plugins/task_groups/group_state.json"),
+        os.path.expanduser("~/.local/state/herdr/plugins/wxomi.task-groups/group_state.json"),
+    )
+    latest_mtime = 0.0
+    for p in paths:
+        try:
+            m = os.path.getmtime(p)
+            if m > latest_mtime:
+                latest_mtime = m
+        except OSError:
+            pass
+
+    if latest_mtime > 0 and latest_mtime == _GROUP_STATE_CACHE[0]:
+        return _GROUP_STATE_CACHE[1], _GROUP_STATE_CACHE[2]
+
+    custom_groups: dict = {}
+    group_names: set[str] = set()
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    tg_data = json.load(f)
+                    cg = tg_data.get("custom_groups", {})
+                    custom_groups.update(cg)
+                    for g in cg.values():
+                        group_names.add(str(g).lower())
+            except Exception:
+                pass
+    _GROUP_STATE_CACHE = (latest_mtime, custom_groups, group_names)
+    return custom_groups, group_names
+
+
 def target_workspace_for_agent(
     agent: dict,
     workspaces_by_id: dict[str, dict],
@@ -33,24 +72,13 @@ def target_workspace_for_agent(
 
     # Do not auto-route agents that are in a custom task group or workspace
     pid = agent.get("pane_id")
-    for state_path in (
-        os.path.expanduser("~/.config/herdr/plugins/task_groups/group_state.json"),
-        os.path.expanduser("~/.local/state/herdr/plugins/wxomi.task-groups/group_state.json"),
-    ):
-        if os.path.exists(state_path):
-            try:
-                with open(state_path, encoding="utf-8") as f:
-                    tg_data = json.load(f)
-                    custom_groups = tg_data.get("custom_groups", {})
-                    group_names = {str(g).lower() for g in custom_groups.values()}
-                    if pid and pid in custom_groups:
-                        return None
-                    if current_label.lower() in group_names:
-                        return None
-                    if current_label.endswith("-agents") and current_label[:-7].lower() in group_names:
-                        return None
-            except Exception:
-                pass
+    custom_groups, group_names = _load_cached_group_state()
+    if pid and pid in custom_groups:
+        return None
+    if current_label.lower() in group_names:
+        return None
+    if current_label.endswith("-agents") and current_label[:-7].lower() in group_names:
+        return None
 
     # STRICT GUARD 1: Canonical agent workspaces NEVER route anywhere else
     if current_label in ("~-agents", "devel-agents"):
@@ -136,7 +164,9 @@ def auto_route_agents(
         return
 
     workspaces = (
-        (client.call("workspace.list").get("result") or {}).get("workspaces") or []
+        snapshot.get("workspaces")
+        or (client.call("workspace.list").get("result") or {}).get("workspaces")
+        or []
     )
     workspaces_by_id = {
         ws["workspace_id"]: ws for ws in workspaces if "workspace_id" in ws
@@ -439,6 +469,9 @@ def report_tokens(
     run_herdr_cli(*args)
 
 
+_TITLE_CACHE: dict[str, tuple[tuple, str | None]] = {}
+
+
 def sync_all(
     only_pane: str | None = None,
     sync_tabs: bool | None = None,
@@ -448,6 +481,7 @@ def sync_all(
     client: HerdrClient | None = None,
 ) -> bool:
     """Scan all active panes, resolve session titles, and update sidebar/tabs."""
+    global _TITLE_CACHE
     c = client or HerdrClient()
     do_sync_tabs = (
         SYNC_TABS
@@ -508,6 +542,10 @@ def sync_all(
                 agents.append(ag)
                 panes_by_id[pid] = p
 
+    active_pids = {a.get("pane_id") for a in agents if a.get("pane_id")}
+    for dead_pid in set(_TITLE_CACHE.keys()) - active_pids:
+        _TITLE_CACHE.pop(dead_pid, None)
+
     for agent in agents:
         pane_id = agent.get("pane_id")
         if not pane_id or (only_pane and pane_id != only_pane):
@@ -515,10 +553,27 @@ def sync_all(
         pane = panes_by_id.get(pane_id) or agent
         tab_id = agent.get("tab_id") or pane.get("tab_id", "")
         tab_label = tabs.get(tab_id)
-        title = title_for_pane(pane, agent, tab_label, c)
+        cwd_val = agent_cwd(pane, agent)
+
+        fingerprint = (
+            pane.get("revision"),
+            pane.get("terminal_title"),
+            pane.get("terminal_title_stripped"),
+            agent.get("agent_status"),
+            tab_label,
+            cwd_val,
+        )
+
+        cached_entry = _TITLE_CACHE.get(pane_id)
+        if cached_entry and cached_entry[0] == fingerprint:
+            title = cached_entry[1]
+        else:
+            title = title_for_pane(pane, agent, tab_label, c)
+            _TITLE_CACHE[pane_id] = (fingerprint, title)
+
         location = format_agent_location(
             pane.get("agent") or agent.get("agent"),
-            agent_cwd(pane, agent),
+            cwd_val,
         )
         tokens = agent.get("tokens") or {}
         report_tokens(
